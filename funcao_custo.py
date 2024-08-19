@@ -3,7 +3,7 @@ from massa_mola_amortecedor import MassaMolaAmortecedor
 from entrada_pista import entrada, trepidacao_pista
 
 
-def funcao_custo(params, m=250, x0=[0, 0], track=None):
+def funcao_custo(params, m=200, x0=[0, 10], track=None):
     k, c = params
     sistema = MassaMolaAmortecedor(m, k, c)
 
@@ -26,9 +26,9 @@ def funcao_custo(params, m=250, x0=[0, 0], track=None):
     position_std = np.std(positions)
 
     max_position = np.max(np.abs(positions))
-    penalty = max_position ** 2  # Penalidade quadrática para grandes oscilações
+    penalty = max_position ** 4  # Penalidade para grandes oscilações
 
     # Ajuste o fator de penalização conforme necessário
-    cost = position_std + penalty
+    cost = position_std * penalty
 
     return cost

@@ -2,7 +2,7 @@ import numpy as np
 from massa_mola_amortecedor import MassaMolaAmortecedor
 from entrada_pista import entrada, trepidacao_pista
 
-def funcao_custo(params, m=250, x0=[0, 0], track=None):
+def funcao_custo(params, m=60, x0=[0, 0], track=None):
     k, c = params
     sistema = MassaMolaAmortecedor(m, k, c)
 

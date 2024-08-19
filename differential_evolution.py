@@ -8,7 +8,7 @@ def mutacao_rand_1(population, F, rng):
     return population[r1] + F * (population[r2] - population[r3])
 
 # Estratégia DE personalizada
-def custom_differential_evolution(strategy, bounds, track, popsize=15, maxiter=30, tol=1e-17, F=0.9, seed=None):
+def custom_differential_evolution(strategy, bounds, track, popsize=20, maxiter=100, tol=1e-9, F=0.8, seed=None):
     rng = np.random.default_rng(seed)
     dimensions = len(bounds)
     population = np.zeros((popsize, dimensions))

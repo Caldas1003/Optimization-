@@ -59,16 +59,16 @@ plt.grid(True)
 plt.legend()
 plt.show()
 
-# Definir limites e estratégia para otimização
-bounds = [(0.1, 300000), (0.1, 10000)]
+# Definir limites amplos para otimização
+bounds = [(1e-5, 1e5), (1e-5, 1e5)]  # Ajuste conforme necessário para refletir o intervalo desejado
 strategy = "DE/rand/1"
 best_params, best_cost = custom_differential_evolution(strategy, bounds, track, seed=1)
 
-print("Parâmetros otimizados (k, c):", best_params)
+print("Parâmetros otimizados (k [N.m], c [N-S/m]):", best_params)
 print("Função de custo mínima:", best_cost)
 
-sistema_otimizado = MassaMolaAmortecedor(m=250, k=best_params[0], c=best_params[1])
-sol_otimizado = sistema_otimizado.simular([0, 0], (0, 100), entrada, trepidacao_pista)
+sistema_otimizado = MassaMolaAmortecedor(m=200, k=best_params[0], c=best_params[1])
+sol_otimizado = sistema_otimizado.simular([0.3, 40], (0, 100), entrada, trepidacao_pista)
 
 plt.figure(figsize=(10, 5))
 plt.plot(sol_otimizado.t, sol_otimizado.y[0], label='Posição (m)')
@@ -79,5 +79,3 @@ plt.ylabel('Resposta')
 plt.legend()
 plt.grid()
 plt.show()
-
-

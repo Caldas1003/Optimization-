@@ -72,12 +72,12 @@ print("Parâmetros otimizados (k [N.m], c [N-S/m]):", best_params)
 print("Função de custo mínima:", best_cost)
 
 # Calcular e imprimir a taxa de amortecimento
-omega_n, xi = calcular_taxa_amortecimento(m=250, k=best_params[0], c=best_params[1])
+omega_n, xi = calcular_taxa_amortecimento(m=60, k=best_params[0], c=best_params[1])
 print(f"Frequência natural (omega_n): {omega_n:.5e} rad/s")
 print(f"Taxa de amortecimento (xi): {xi:.5e}")
 
-sistema_otimizado = MassaMolaAmortecedor(m=250, k=best_params[0], c=best_params[1])
-sol_otimizado = sistema_otimizado.simular([0.3, 20], (0, 180), entrada, trepidacao_pista)
+sistema_otimizado = MassaMolaAmortecedor(m=60, k=best_params[0], c=best_params[1])
+sol_otimizado = sistema_otimizado.simular([0.3, 10], (0, 180), entrada, trepidacao_pista)
 
 plt.figure(figsize=(10, 5))
 plt.plot(sol_otimizado.t, sol_otimizado.y[0], label='Posição (m)')

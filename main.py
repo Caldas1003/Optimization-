@@ -13,6 +13,11 @@ def calcular_comprimento_pista(track):
         comprimento_total += np.sqrt(dist_x**2 + dist_y**2)
     return comprimento_total
 
+def calcular_taxa_amortecimento(m, k, c):
+    omega_n = np.sqrt(k / m)  # Frequência natural
+    xi = c / (2 * np.sqrt(k * m))  # Taxa de amortecimento
+    return omega_n, xi
+
 # Coordenadas GPS dos pontos-chave ao longo da pista (latitude, longitude)
 gps_data = [
     (-22.738659, -47.533115),
@@ -50,25 +55,29 @@ for i in range(1, len(gps_data)):
 
 comprimento_pista = calcular_comprimento_pista(track)
 
-plt.figure(figsize=(10, 10))
-plt.plot(x, y, marker='o', label='Traçado da Pista')
-plt.title('Traçado Preciso da Pista')
-plt.xlabel('Distância em X (metros)')
-plt.ylabel('Distância em Y (metros)')
-plt.grid(True)
-plt.legend()
-plt.show()
+# plt.figure(figsize=(10, 10))
+# plt.plot(x, y, marker='o', label='Traçado da Pista')
+# plt.title('Traçado Preciso da Pista')
+# plt.xlabel('Distância em X (metros)')
+# plt.ylabel('Distância em Y (metros)')
+# plt.grid(True)
+# plt.legend()
+# plt.show()
 
-# Definir limites amplos para otimização
-bounds = [(1e-5, 1e5), (1e-5, 1e5)]  # Ajuste conforme necessário para refletir o intervalo desejado
+bounds = [(1e-5, 1e6), (1e-5, 1e5)]  
 strategy = "DE/rand/1"
 best_params, best_cost = custom_differential_evolution(strategy, bounds, track, seed=1)
 
 print("Parâmetros otimizados (k [N.m], c [N-S/m]):", best_params)
 print("Função de custo mínima:", best_cost)
 
-sistema_otimizado = MassaMolaAmortecedor(m=200, k=best_params[0], c=best_params[1])
-sol_otimizado = sistema_otimizado.simular([0.3, 40], (0, 100), entrada, trepidacao_pista)
+# Calcular e imprimir a taxa de amortecimento
+omega_n, xi = calcular_taxa_amortecimento(m=250, k=best_params[0], c=best_params[1])
+print(f"Frequência natural (omega_n): {omega_n:.5e} rad/s")
+print(f"Taxa de amortecimento (xi): {xi:.5e}")
+
+sistema_otimizado = MassaMolaAmortecedor(m=250, k=best_params[0], c=best_params[1])
+sol_otimizado = sistema_otimizado.simular([0.3, 20], (0, 180), entrada, trepidacao_pista)
 
 plt.figure(figsize=(10, 5))
 plt.plot(sol_otimizado.t, sol_otimizado.y[0], label='Posição (m)')

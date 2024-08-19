@@ -17,7 +17,7 @@ def custom_differential_evolution(strategy, bounds, track, popsize=20, maxiter=1
         population[:, i] = rng.uniform(bounds[i][0], bounds[i][1], size=popsize)
 
     costs = np.array([funcao_custo(ind, track=track) for ind in population])
-    best_idx = np.argmin(costs)  # Minimizar a função de custo
+    best_idx = np.argmin(costs) 
     best = population[best_idx]
 
     log = []

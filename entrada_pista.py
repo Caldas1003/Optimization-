@@ -1,7 +1,7 @@
 import numpy as np
 
 def entrada(t):
-    return np.array([700 + 50 * np.sin(0.1 * t)])  # Força com uma oscilação de ±2000 N
+    return np.array([600 + 250 * np.sin(0.1 * t)])  # Força com uma oscilação de ±2000 N
 
 # def entrada(t):
 #     return np.array([7000 * np.exp(0.01 * t)])  # Força aumenta exponencialmente

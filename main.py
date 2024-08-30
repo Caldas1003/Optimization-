@@ -1,4 +1,4 @@
-import numpy as np
+import numpy as np                #TESTE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 import matplotlib.pyplot as plt
 from entrada_pista import entrada, trepidacao_pista
 from massa_mola_amortecedor import MassaMolaAmortecedor

@@ -223,7 +223,7 @@ X_esq, Y_esq, Z_esq = zip(*esquerda)
 X_dir, Y_dir, Z_dir = zip(*direita)
 
 # Função para gerar a malha entre as bordas esquerda e direita
-def gerar_malha(X_esq, Y_esq, Z_esq, X_dir, Y_dir, Z_dir, atrito):
+def malha(X_esq, Y_esq, Z_esq, X_dir, Y_dir, Z_dir, atrito):
     # Para criar uma malha, precisamos de uma matriz de coordenadas
     X_malha = np.array([X_esq, X_dir]), atrito
     Y_malha = np.array([Y_esq, Y_dir]), atrito
@@ -231,7 +231,7 @@ def gerar_malha(X_esq, Y_esq, Z_esq, X_dir, Y_dir, Z_dir, atrito):
     return X_malha, Y_malha, Z_malha
 
 # Gerar a malha
-X_malha, Y_malha, Z_malha = gerar_malha(X_esq, Y_esq, Z_esq, X_dir, Y_dir, Z_dir, atrito) 
+X_malha, Y_malha, Z_malha = malha(X_esq, Y_esq, Z_esq, X_dir, Y_dir, Z_dir, atrito) 
 
 # Criar uma figura 3D
 fig = plt.figure()
@@ -249,7 +249,7 @@ for i in range(len(X_esq)):
     ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], [Z_esq[i], Z_dir[i]], color='gray')
 
 # Plotar a malha entre as bordas com o coeficiente de atrito
-ax.plot_surface(X_malha[0], Y_malha[0], Z_malha[0], color='orange', alpha=0.6, label=f"Malha (Atrito {atrito})")
+ax.plot_surface(X_malha[0], Y_malha[0], Z_malha[0], color='black', alpha=1, label=f"Malha (Atrito {atrito})")
 
 # Configurar rótulos dos eixos
 ax.set_xlabel('X (metros)')

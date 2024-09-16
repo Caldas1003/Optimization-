@@ -43,16 +43,7 @@ gps_coords = [
     (-22.738504, -47.533038),
     (-22.738762, -47.533146)  # Fechar o loop da pista
 ]
-
-# Definir um ponto de referência (ponto inicial para conversão)
-lat0, lon0 = gps_coords[0]
-
-# Converter as coordenadas GPS para X, Y
-coordenadas_centro = [latlon_to_xy(lat, lon, lat0, lon0) + (1,) for lat, lon in gps_coords]
-
-# Separar as coordenadas X, Y, Z
-X_centro = [p[0] for p in coordenadas_centro]
-Y_centro = [p[1] for p in coordenadas_centro]
+#Valores de elevação da pista
 elevacao = [
     10.4,  # Altitude para Ponto 1
     11.8,  # Altitude para Ponto 2
@@ -72,6 +63,15 @@ elevacao = [
     10.0,
     10.4
     ]
+# Definir um ponto de referência (ponto inicial para conversão)
+lat0, lon0 = gps_coords[0]
+
+# Converter as coordenadas GPS para X, Y
+coordenadas_centro = [latlon_to_xy(lat, lon, lat0, lon0) + (1,) for lat, lon in gps_coords]
+
+# Separar as coordenadas X, Y, Z
+X_centro = [p[0] for p in coordenadas_centro]
+Y_centro = [p[1] for p in coordenadas_centro]
 Z_centro=[e/2 for e in elevacao]
 
 # Criar uma interpolação cúbica para suavizar a pista sem a condição 'periodic'

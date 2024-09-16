@@ -53,7 +53,26 @@ coordenadas_centro = [latlon_to_xy(lat, lon, lat0, lon0) + (1,) for lat, lon in 
 # Separar as coordenadas X, Y, Z
 X_centro = [p[0] for p in coordenadas_centro]
 Y_centro = [p[1] for p in coordenadas_centro]
-Z_centro = [p[2] for p in coordenadas_centro]
+elevacao = [
+    10.4,  # Altitude para Ponto 1
+    11.8,  # Altitude para Ponto 2
+    11.7,  # Altitude para Ponto 3
+    10.8,  # Altitude para Ponto 4
+    9.8,  # Altitude para Ponto 5
+    8.3,  # Altitude para Ponto 6
+    7.5,  # Altitude para Ponto 7
+    1.9,  # Altitude para Ponto 8
+    0.4,  # Altitude para Ponto 9
+    0.1,  # Altitude para Ponto 10
+    1.4,  # Altitude para Ponto 11
+    5.0,  # Altitude para Ponto 12
+    6.6,  # Altitude para Ponto 13
+    7.5,
+    8.0,
+    10.0,
+    10.4
+    ]
+Z_centro=[e/2 for e in elevacao]
 
 # Criar uma interpolação cúbica para suavizar a pista sem a condição 'periodic'
 cs_x = CubicSpline(np.arange(len(X_centro)), X_centro, bc_type='natural')

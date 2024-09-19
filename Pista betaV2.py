@@ -62,8 +62,8 @@ class PistaComAtrito:
                             self.Y_suave[i] - vetor_normal[1] * self.largura_pista,
                             self.Z_suave[i]))
         
-        esquerda.append((self.X_suave[-1], self.Y_suave[-1], self.Z_suave[-1]))
-        direita.append((self.X_suave[-1], self.Y_suave[-1], self.Z_suave[-1]))
+        esquerda.append(esquerda[0])
+        direita.append(direita[0])
         
         return esquerda, direita
 

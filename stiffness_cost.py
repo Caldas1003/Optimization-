@@ -48,3 +48,17 @@ def max_torque(suspension_stiffness, friction_coef, wheel_torque):
     return maximum_torque
 
 print(max_torque(100000, 0.8, 76))
+
+
+
+def rear_axle_normal_force(rear_axle_vetical_displacement):
+    '''
+    Combine with the friction coeficiente given by the current track spot to calculate the maximum wheel torque possible
+    '''
+    weigth_front, weigth_rear, suspension_stiffness, cg_to_rear_length = 120, 160, 0.2, 0.85
+
+    # np.sqrt(1 - (x / Lr) ** 2) is the cosine of the angle due to the vertical displacement
+    weigth_front_after_displacement = weigth_front * np.sqrt(1 - (rear_axle_vetical_displacement / cg_to_rear_length) ** 2)
+    weigth_shifted = weigth_front - weigth_front_after_displacement
+
+    return weigth_rear + (rear_axle_vetical_displacement * suspension_stiffness) + weigth_shifted

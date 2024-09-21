@@ -1,158 +1,163 @@
 import numpy as np
+from pista import PistaComAtrito
 
-# Classe genérica do sistema do carro
 class CarroGenerico:
-    def __init__(self, forca_pedal, coef_atrito, psi, torque_motor, massa_carro, raio_rodas, rigidez_mola, amortecimento, coef_aerodinamico, coef_atrito_pneu, tensao_bateria, corrente_bateria, capacidade_bateria):
-        # Sistema de freios
-        self.forca_pedal = forca_pedal  # Força no pedal de freio (N)
-        self.coef_atrito = coef_atrito  # Coeficiente de atrito das pastilhas
-        self.psi = psi  # Distribuição da força de frenagem (dianteira/traseira)
+    def __init__(self, forca_pedal, coef_atrito, psi, torque_motor, massa_carro, raio_rodas, rigidez_mola, amortecimento, tensao_bateria, corrente_bateria, capacidade_bateria):
+        self.forca_pedal = forca_pedal
+        self.coef_atrito = coef_atrito
+        self.psi = psi
         
-        # Sistema de transmissão
-        self.torque_motor = torque_motor  # Torque do motor (Nm)
-        self.massa_carro = massa_carro  # Massa do carro (kg)
-        self.raio_rodas = raio_rodas  # Raio das rodas (m)
+        self.torque_motor = torque_motor
+        self.massa_carro = massa_carro
+        self.raio_rodas = raio_rodas 
         
-        # Suspensão
-        self.rigidez_mola = rigidez_mola  # Rigidez da mola (N/m)
-        self.amortecimento = amortecimento  # Amortecimento da suspensão (Ns/m) <-- SUBCRITICO
+        self.rigidez_mola = rigidez_mola
+        self.amortecimento = amortecimento
         
-        # Aerodinâmica e atrito
-        self.coef_aerodinamico = coef_aerodinamico  # Coeficiente de arrasto
-        self.coef_atrito_pneu = coef_atrito_pneu  # Coeficiente de atrito do pneu com o solo
-        
-        # Sistema de bateria e eletrônica
-        self.tensao_bateria = tensao_bateria  # Tensão (V)
-        self.corrente_bateria = corrente_bateria  # Corrente elétrica (A)
-        self.capacidade_bateria = capacidade_bateria  # Capacidade do pack de bateria (kWh)
-
-        # Chassi
-        # tensão maxima e minima
-        # rigidez (esperar) transformar em ax + bu 
+        self.tensao_bateria = tensao_bateria
+        self.corrente_bateria = corrente_bateria
+        self.capacidade_bateria = capacidade_bateria
     
     def calcular_tempo_frenagem(self, velocidade_inicial):
-        # Desaceleração gerada pelo freio
         desaceleracao = self.forca_pedal * self.coef_atrito * self.psi
-        tempo_frenagem = velocidade_inicial / desaceleracao  # Tempo para parar
-        return max(tempo_frenagem, 0.1)  # Garantir tempo positivo
+        tempo_frenagem = velocidade_inicial / desaceleracao
+        return np.maximum(tempo_frenagem, 0.1)
     
     def calcular_aceleracao(self):
-        # Força nas rodas = torque / raio
         forca_rodas = self.torque_motor / self.raio_rodas
-        # Aceleração = Força / Massa
         aceleracao = forca_rodas / self.massa_carro
         return aceleracao
 
-    def calcular_resistencia_ar(self, velocidade):
-        # Resistência aerodinâmica = 0.5 * coef_aerodinamico * velocidade^2
-        resistencia_ar = 0.5 * self.coef_aerodinamico * (velocidade ** 2)
-        return resistencia_ar
-    
     def calcular_energia_bateria(self):
-        # Energia disponível na bateria (em Joules)
-        energia_bateria = self.capacidade_bateria * 3600 * 1000  # kWh para Joules
+        energia_bateria = self.capacidade_bateria * 3600 * 1000
         return energia_bateria
 
     def calcular_energia_consumida(self, tempo_segmento):
-        # Energia consumida = Potência (tensão * corrente) * tempo
-        potencia = self.tensao_bateria * self.corrente_bateria  # em Watts
-        energia_consumida = potencia * tempo_segmento  # em Joules
+        potencia = self.tensao_bateria * self.corrente_bateria
+        energia_consumida = potencia * tempo_segmento
         return energia_consumida
     
-    def calcular_tempo_segmento(self, segmento, velocidade_inicial):
-        # Parâmetros do segmento
-        distancia_segmento = segmento['distancia']
-        velocidade_final_m_s = segmento['velocidade'] / 3.6  # km/h para m/s
-        
-        # Calcular aceleração e frenagem
+
+    def calcular_tempo_segmento(self, distancia_segmento, velocidade_inicial, velocidade_final):
+        velocidade_final_m_s = velocidade_final / 3.6
+        velocidade_inicial_m_s = velocidade_inicial / 3.6
+
         aceleracao = self.calcular_aceleracao()
-        tempo_frenagem = self.calcular_tempo_frenagem(velocidade_inicial)
-        
-        # Calcular o efeito da suspensão no tempo
+        tempo_frenagem = self.calcular_tempo_frenagem(velocidade_inicial_m_s)
+
         efeito_suspensao = 1 + (1 / (self.rigidez_mola + self.amortecimento))
-        
-        # Calcular o efeito da resistência do ar no tempo
-        resistencia_ar = self.calcular_resistencia_ar(velocidade_final_m_s)
-        efeito_aero = 1 + (resistencia_ar / 1000)  # Simulando o efeito da resistência
-        
-        # Calcular o tempo para percorrer o segmento
-        if aceleracao > 0:
-            tempo_aceleracao = (velocidade_final_m_s - velocidade_inicial) / aceleracao
+
+        if aceleracao > 0: 
+            tempo_aceleracao = (velocidade_final_m_s - velocidade_inicial_m_s) / aceleracao
             distancia_percorrida_acelerando = 0.5 * aceleracao * (tempo_aceleracao ** 2)
-            if distancia_percorrida_acelerando < distancia_segmento:
+            distancia_percorrida_acelerando = distancia_percorrida_acelerando[:199]
+
+            if isinstance(distancia_segmento, np.ndarray):
+                # Ajuste o comprimento de distancia_segmento para corresponder ao comprimento de distancia_percorrida_acelerando
+                if distancia_percorrida_acelerando.shape[0] < distancia_segmento.shape[0]:
+                    distancia_segmento = distancia_segmento[:distancia_percorrida_acelerando.shape[0]]
                 distancia_restante = distancia_segmento - distancia_percorrida_acelerando
-                tempo_total = (tempo_frenagem + tempo_aceleracao + distancia_restante / velocidade_final_m_s) * efeito_suspensao * efeito_aero
+                # Garantir que todas as variáveis sejam arrays de pelo menos uma dimensão
+                tempo_aceleracao = np.atleast_1d(tempo_aceleracao)
+                distancia_restante = np.atleast_1d(distancia_restante)
+                velocidade_final_m_s = np.atleast_1d(velocidade_final_m_s)
+                tempo_frenagem = np.atleast_1d(tempo_frenagem)
+
+                # Verificar os tamanhos
+                tamanho_minimo = min(tempo_aceleracao.shape[0], distancia_restante.shape[0], velocidade_final_m_s.shape[0], tempo_frenagem.shape[0])
+
+                # Calcular o tempo
+                tempo_total = (tempo_aceleracao[:tamanho_minimo] + 
+                                (distancia_restante[:tamanho_minimo] / velocidade_final_m_s[:tamanho_minimo]) + 
+                                tempo_frenagem[:tamanho_minimo]) * efeito_suspensao
             else:
-                tempo_total = (2 * distancia_segmento / aceleracao) ** 0.5 * efeito_suspensao * efeito_aero
+                if distancia_percorrida_acelerando < distancia_segmento:
+                    distancia_restante = distancia_segmento - distancia_percorrida_acelerando
+                    tempo_total = (tempo_aceleracao + (distancia_restante / velocidade_final_m_s) + tempo_frenagem) * efeito_suspensao
+                else:
+                    tempo_total = (2 * distancia_segmento / aceleracao) ** 0.5 * efeito_suspensao
         else:
-            tempo_total = (distancia_segmento / velocidade_final_m_s) * efeito_suspensao * efeito_aero
+            tempo_total = (distancia_segmento / velocidade_final_m_s) * efeito_suspensao
 
         return tempo_total
 
-
 # Função objetivo: minimizar o tempo de volta e considerar o impacto da bateria
 def funcao_objetivo(params, pista, velocidade_inicial=72):
-    # Desempacotar os parâmetros
-    forca_pedal, coef_atrito, psi, torque_motor, massa_carro, raio_rodas, rigidez_mola, amortecimento, coef_aerodinamico, coef_atrito_pneu, tensao_bateria, corrente_bateria, capacidade_bateria = params
+    forca_pedal, coef_atrito, psi, torque_motor, massa_carro, raio_rodas, rigidez_mola, amortecimento, tensao_bateria, corrente_bateria, capacidade_bateria = params
 
-    # Criar uma instância genérica do carro com os parâmetros
-    carro = CarroGenerico(forca_pedal, coef_atrito, psi, torque_motor, massa_carro, raio_rodas, rigidez_mola, amortecimento, coef_aerodinamico, coef_atrito_pneu, tensao_bateria, corrente_bateria, capacidade_bateria)
-
-    velocidade_inicial_ms = velocidade_inicial / 3.6  # km/h para m/s
+    carro = CarroGenerico(forca_pedal, coef_atrito, psi, torque_motor, massa_carro, raio_rodas, rigidez_mola, amortecimento, tensao_bateria, corrente_bateria, capacidade_bateria)
+    coef_atrito = pista.atrito
+    velocidade_inicial_ms = velocidade_inicial / 3.6
     tempo_total_volta = 0
-    energia_total_consumida = 0  # Energia consumida por volta
+    energia_total_consumida = 0
+    torque_min = bounds[0][0]  # O valor mínimo do torque a partir dos limites
+    psi_min_ideal = 0.5  # Valor mínimo aceitável para Psi (distribuição de frenagem)
+    
     energia_disponivel = carro.calcular_energia_bateria()
+    
+    X_malha, Y_malha, Z_malha = pista.gerar_malha()
+    distancia_total = np.sqrt(np.diff(X_malha[0])**2 + np.diff(Y_malha[0])**2 + np.diff(Z_malha[0])**2)
 
-    # Calcular o tempo total e a energia consumida para todos os segmentos da pista
-    for segmento in pista:
-        tempo_segmento = carro.calcular_tempo_segmento(segmento, velocidade_inicial_ms)
+    for i in range(len(distancia_total)):
+        distancia_segmento = distancia_total[i]
+        velocidade_segmento = Z_malha[0][i] * 14
+        tempo_segmento = carro.calcular_tempo_segmento(distancia_segmento, velocidade_inicial_ms, velocidade_segmento / 3.6)
         energia_consumida_segmento = carro.calcular_energia_consumida(tempo_segmento)
         
-        energia_total_consumida += energia_consumida_segmento
-        tempo_total_volta += tempo_segmento
+        # Verificar a forma de energia_consumida_segmento e garantir que a soma seja compatível
+        energia_consumida_segmento = np.atleast_1d(energia_consumida_segmento)
+        # Realizar a soma corretamente
+        energia_total_consumida += np.sum(energia_consumida_segmento)
+        # Verificar a forma de energia_consumida_segmento e garantir que a soma seja compatível
+        tempo_segmento = np.atleast_1d(tempo_segmento)
+        # Realizar a soma corretamente
+        tempo_total_volta += np.sum(tempo_segmento)
         
-        # Atualizar a velocidade inicial para o próximo segmento
-        velocidade_inicial_ms = segmento['velocidade'] / 3.6
+        velocidade_inicial_ms = velocidade_segmento / 3.6
 
-    # Se a energia consumida for maior que a disponível, o carro não completa a volta
     if energia_total_consumida > energia_disponivel:
-        penalidade = (energia_total_consumida / energia_disponivel)  # Penalidade proporcional ao excesso de consumo
+        penalidade = (energia_total_consumida / energia_disponivel)
         tempo_total_volta *= penalidade
-
-    return tempo_total_volta  # Queremos minimizar o tempo total de volta
-
+    
+    if psi < psi_min_ideal:
+        # Penalidade exponencial para valores de Psi abaixo do ideal
+        penalidade = 1 + (psi_min_ideal - psi) ** 3  # Penalidade cúbica
+        tempo_total_volta *= penalidade
+    
+    if torque_motor < torque_min:
+        penalidade = 1 + ((torque_min - torque_motor) / torque_min) ** 2  # Penalidade quadrática
+        tempo_total_volta *= penalidade
+    
+    return tempo_total_volta
 
 # Evolução Diferencial Auto-Adaptativa (EDA)
-def evolucao_diferencial_adaptativa(func, bounds, pista, pop_size=130, F=0.8, CR=0.9, max_generations=1000):
-    dim = len(bounds)
-    pop = np.random.rand(pop_size, dim)
-    pop_denorm = bounds[:, 0] + pop * (bounds[:, 1] - bounds[:, 0])
+def evolucao_diferencial_adaptativa(func, pista, bounds, pop_size=110, F=0.8, CR=0.9, max_generations=1000):
+    num_params = bounds.shape[0]
+    pop = np.random.rand(pop_size, num_params)
+    pop_denorm = np.array([bounds[:, 0] + p * (bounds[:, 1] - bounds[:, 0]) for p in pop])
+    
     fitness = np.array([func(ind, pista) for ind in pop_denorm])
-
-    best_idx = np.argmin(fitness)
-    best = pop_denorm[best_idx]
-
-    log_tempo_voltas = []  # Armazenar o melhor tempo de cada geração
-    log_tempo_voltas.append(fitness[best_idx])
-
-    gen = 0
-    while gen < max_generations:
+    
+    for gen in range(max_generations):
         for i in range(pop_size):
-            idxs = [idx for idx in range(pop_size) if idx != i]
-            r1, r2, r3 = pop[np.random.choice(idxs, 3, replace=False)]
-            mutante = r1 + F * (r2 - r3)
-            mutante = np.clip(mutante, 0, 1)
-            cruzado = np.where(np.random.rand(dim) < CR, mutante, pop[i])
-            cruzado_denorm = bounds[:, 0] + cruzado * (bounds[:, 1] - bounds[:, 0])
-            f = func(cruzado_denorm, pista)
-            if f < fitness[i]:
-                fitness[i] = f
-                pop[i] = cruzado
-                if f < fitness[best_idx]:
-                    best_idx = i
-                    best = cruzado_denorm
+            indices = list(range(pop_size))
+            indices.remove(i)
+            a, b, c = np.random.choice(indices, 3, replace=False)
+            
+            diff = pop_denorm[b] - pop_denorm[c]
+            trial = pop_denorm[i] + F * diff
+            trial = np.clip(trial, bounds[:, 0], bounds[:, 1])
+            
+            j_rand = np.random.randint(num_params)
+            trial_vec = np.array([trial[j] if np.random.rand() < CR or j == j_rand else pop_denorm[i][j] for j in range(num_params)])
+            
+            trial_fitness = func(trial_vec, pista)
+            if np.all(trial_fitness < fitness[i]):
+                pop_denorm[i] = trial_vec
+                fitness[i] = trial_fitness
+        
+        pop = np.array([(ind - bounds[:, 0]) / (bounds[:, 1] - bounds[:, 0]) for ind in pop_denorm])
 
-        # Auto-adaptação de F e CR
         F = np.clip(F * np.random.rand(), 0.4, 1.2)
         CR = np.clip(CR * np.random.rand(), 0.1, 1.0)
 
@@ -160,50 +165,69 @@ def evolucao_diferencial_adaptativa(func, bounds, pista, pop_size=130, F=0.8, CR
             print(f"Convergência alcançada na geração {gen}.")
             break
         gen += 1
+        fitness = np.where(np.isfinite(fitness), fitness, np.inf)
+        best_idx = np.argmin(fitness)
+        best_params = pop_denorm[best_idx]
+        best_fitness = fitness[best_idx]
+        best_params = np.clip(best_params, bounds[:, 0], bounds[:, 1])
+    
+    return best_params, best_fitness
 
-    return best, fitness[best_idx]
+# Configuração da pista e otimização
+gps_coords = [  (-22.738762, -47.533146),
+    (-22.739971, -47.533735),
+    (-22.740344, -47.533928),
+    (-22.740598, -47.533945),
+    (-22.740725, -47.533782),
+    (-22.740737, -47.533451),
+    (-22.739432, -47.532570),
+    (-22.739353, -47.531387),
+    (-22.739159, -47.531069),
+    (-22.738715, -47.530897),
+    (-22.738259, -47.531082),
+    (-22.737450, -47.531959),
+    (-22.737394, -47.532273),
+    (-22.737490, -47.532471),
+    (-22.737608, -47.532600),
+    (-22.738504, -47.533038),
+    (-22.738762, -47.533146)]  # Substitua com coordenadas reais
+elevacao = [10.4, 11.8, 11.7, 10.8, 9.8, 8.3, 7.5, 1.9, 0.4, 0.1, 1.4, 5.0, 6.6, 7.5, 8.0, 10.0, 10.4]  # Substitua com dados reais de elevação
+atrito = 1.45  # Exemplo de atrito
 
-# Definir os limites dos parâmetros de controle (tudo em um único array)
+pista = PistaComAtrito(gps_coords, elevacao, atrito)
 bounds = np.array([
-    [100, 823],  # Força no pedal de freio (N)
+    [445, 823],  # Força no pedal de freio (N)
     [0.1, 0.45],  # Coeficiente de atrito das pastilhas
     [0.3, 0.7],  # Distribuição da força de frenagem
     [50, 300],   # Torque do motor (Nm)
-    [150, 300],  # Massa do carro (kg)
+    [150, 200],  # Massa do carro (kg)
     [0.2, 0.35],  # Raio das rodas (m)
     [10000, 1000000],  # Rigidez da mola (N/m)
     [1000, 40000],  # Amortecimento da suspensão (Ns/m)
-    [0.25, 0.45],  # Coeficiente aerodinâmico
-    [1.0, 1.45],  # Coeficiente de atrito do pneu com o solo
     [83, 666],  # Tensão da bateria (V)
     [150, 600],  # Corrente da bateria (A)
     [5, 10]  # Capacidade do pack de bateria (kWh)
 ])
 
-
-# Exemplo de pista (definida em segmentos de distância e velocidade média)
-pista = [
-    {'distancia': 1000, 'velocidade': 90},  # Segmento 1
-    {'distancia': 2000, 'velocidade': 108},  # Segmento 2
-    {'distancia': 3000, 'velocidade': 126}  # Segmento 3
-]
-
 # Executar a EDA para otimizar o tempo de volta
-melhor_solucao, melhor_tempo_volta = evolucao_diferencial_adaptativa(funcao_objetivo, bounds, pista)
+melhor_solucao, melhor_tempo_volta = evolucao_diferencial_adaptativa(funcao_objetivo, pista, bounds)
 
 def tempo():
     if melhor_tempo_volta > 60:
         minuto = melhor_tempo_volta // 60
         segundo = melhor_tempo_volta % 60
-        if minuto > 60:
-            hora = minuto / 60
+        if minuto >= 60:
+            hora = minuto // 60
+            minuto = minuto % 60
         else:
             hora = 0
-    else: 
+    else:
         minuto = 0
-    print(f'Melhor Tempo de Volta: {hora:.1f} h {minuto:.1f} m {segundo:.1f} s')
+        segundo = melhor_tempo_volta
+        hora = 0
+    print(f'Melhor Tempo de Volta: {hora:.0f} h {minuto:.0f} m {segundo:.2f} s')
 
 # Exibir a melhor solução e o melhor tempo de volta
-print(f"Melhor Solução: Força no pedal = {melhor_solucao[0]:.2f} N, Coeficiente de atrito = {melhor_solucao[1]:.2f}, Psi = {melhor_solucao[2]:.2f}, Torque do motor = {melhor_solucao[3]:.2f} Nm, Massa = {melhor_solucao[4]:.2f} kg, Raio das rodas = {melhor_solucao[5]:.2f} m, Rigidez da mola: {melhor_solucao[6]:.2f} N/m, Amortecimento da suspensão: {melhor_solucao[7]:.2f} Ns/m, Coeficiente aerodinâmico: {melhor_solucao[8]:.2f}, Coeficiente de atrito do pneu com o solo: {melhor_solucao[9]:.2f}, Tensão da bateria: {melhor_solucao[10]:.2f} V, Corrente da bateria: {melhor_solucao[11]:.2f} A, Capacidade do pack de bateria: {melhor_solucao[12]:.2f} kWh")
+print(f"Melhor Solução: Força no pedal = {melhor_solucao[0]:.2f} N, Coeficiente de atrito = {melhor_solucao[1]:.2f}, Psi = {melhor_solucao[2]:.2f}, Torque do motor = {melhor_solucao[3]:.2f} Nm, Massa = {melhor_solucao[4]:.2f} kg, Raio das rodas = {melhor_solucao[5]:.2f} m, Rigidez da mola: {melhor_solucao[6]:.2f} N/m, Amortecimento da suspensão: {melhor_solucao[7]:.2f} Ns/m, Tensão da bateria: {melhor_solucao[8]:.2f} V, Corrente da bateria: {melhor_solucao[9]:.2f} A, Capacidade do pack de bateria: {melhor_solucao[10]:.2f} kWh")
 tempo()
 print(f'Melhor Tempo de Volta em Segundos: {melhor_tempo_volta:.2f} s')

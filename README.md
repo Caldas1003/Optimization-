@@ -1,2 +1,2 @@
-# Optimization-
-Aqui joga os arquivos que estão em teste
+# Optimization
+Branch de desenvolvimento de algoritmo para pilotar o carro na pista

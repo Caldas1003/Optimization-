@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from PistaComAtrito import PistaComAtrito,gps_coords, elevacao
+from Pista import Pista, gps_coords
 
 class SimulacaoCarro:
     def __init__(self, pista):
@@ -10,12 +10,12 @@ class SimulacaoCarro:
         self.tracado = []
         self.angulos = []
 
-    def gerar_checkpoints(self, num_checkpoints=10000, num_portoes=100):
-        t = np.linspace(0, len(self.pista.X_suave) - 1, num_checkpoints)
-        for i in range(len(t) - 1):
-            x_esq, y_esq, z_esq = self.pista.esquerda[int(t[i])]
-            x_dir, y_dir, z_dir = self.pista.direita[int(t[i])]
-            checkpoint = {'esquerda': (x_esq, y_esq, z_esq), 'direita': (x_dir, y_dir, z_dir)}
+    def gerar_checkpoints(self, num_checkpoints=49, num_portoes=10000):
+        t = np.linspace(0, len(self.pista.X_centro) - 1, num_checkpoints, dtype=int)
+        for i in t:
+            x_esq, y_esq = self.pista.esquerda[i]
+            x_dir, y_dir = self.pista.direita[i]
+            checkpoint = {'esquerda': (x_esq, y_esq), 'direita': (x_dir, y_dir)}
             self.checkpoints.append(checkpoint)
 
             # Criar portões igualmente espaçados
@@ -24,11 +24,10 @@ class SimulacaoCarro:
                 alfa = j / (num_portoes - 1)
                 x = x_esq + alfa * (x_dir - x_esq)
                 y = y_esq + alfa * (y_dir - y_esq)
-                z = z_esq + alfa * (z_dir - z_esq)
-                portoes_checkpoint.append((x, y, z))
+                portoes_checkpoint.append((x, y))
             self.portoes.append(portoes_checkpoint)
 
-    def simular_tracado(self, angulo_maximo=6):
+    def simular_tracado(self, angulo_maximo=90):
         portao_atual = self.portoes[0][0]  # Começa no primeiro portão
         self.tracado.append(portao_atual)
 
@@ -78,14 +77,14 @@ class SimulacaoCarro:
                 continue
 
             cos_theta = np.dot(direcao_anterior, direcao_atual) / (
-                np.linalg.norm(direcao_anterior) * np.linalg.norm(direcao_atual))
+                    np.linalg.norm(direcao_anterior) * np.linalg.norm(direcao_atual))
             cos_theta = np.clip(cos_theta, -1.0, 1.0)
             angulo = np.degrees(np.arccos(cos_theta))
             angulos.append(angulo)
 
-        if not angulos:
-            return 0, 0, 0  # Retornar valores padrão
-
+        # if not angulos:
+        #     return 0, 0, 0  # Retornar valores padrão
+        print(angulos)
         max_ang = max(angulos)
         min_ang = min(angulos)
         mean_ang = sum(angulos) / len(angulos)
@@ -93,38 +92,41 @@ class SimulacaoCarro:
         return max_ang, min_ang, mean_ang
 
     def plotar_pista_e_tracado(self):
-        fig = plt.figure(figsize=(10, 7))
-        ax = fig.add_subplot(111, projection='3d')
+        fig, ax = plt.subplots()
+
+        X_esq, Y_esq = zip(*self.pista.esquerda)
+        X_dir, Y_dir = zip(*self.pista.direita)
 
         # Plotar a pista
-        X_esq, Y_esq, Z_esq = zip(*self.pista.esquerda)
-        X_dir, Y_dir, Z_dir = zip(*self.pista.direita)
-        ax.plot(self.pista.X_suave, self.pista.Y_suave, self.pista.Z_suave, color='blue', label="Centro da Pista")
-        ax.plot(X_esq, Y_esq, Z_esq, color='green', label="Borda Esquerda")
-        ax.plot(X_dir, Y_dir, Z_dir, color='red', label="Borda Direita")
+        ax.plot(self.pista.X_centro, self.pista.Y_centro, color='blue', label="Centro da Pista")
+        ax.plot(X_esq, Y_esq, color='green', label="Borda Esquerda")
+        ax.plot(X_dir, Y_dir, color='red', label="Borda Direita")
 
         # Plotar o traçado escolhido
-        x_tracado, y_tracado, z_tracado = zip(*self.tracado)
-        ax.plot(x_tracado, y_tracado, z_tracado, color='orange', label="Traçado Escolhido", linewidth=2)
+        x_tracado, y_tracado = zip(*self.tracado)
+        ax.plot(x_tracado, y_tracado, color='orange', label="Traçado Escolhido", linewidth=2)
 
         ax.set_xlabel('X (metros)')
         ax.set_ylabel('Y (metros)')
-        ax.set_zlabel('Z (altitude metros)')
         ax.set_title('Pista e Traçado Simulado')
         ax.legend()
+        plt.axis('equal')
         plt.show()
 
-pista = PistaComAtrito(gps_coords, elevacao, atrito=1.45)
+
+# Instanciar a pista e a simulação
+pista = Pista(gps_coords, largura_pista=10)
 simulacao = SimulacaoCarro(pista)
 
+# Executar a simulação
 simulacao.gerar_checkpoints()
-simulacao.simular_tracado(angulo_maximo=20)
+simulacao.simular_tracado(angulo_maximo=10)
+
+# Visualizar a pista e o traçado
+simulacao.plotar_pista_e_tracado()
 
 try:
     max_ang, min_ang, mean_ang = simulacao.analise_angulos()
     print(f"Máximo ângulo: {max_ang:.2f}°, Mínimo ângulo: {min_ang:.2f}°, Média dos ângulos: {mean_ang:.2f}°")
 except ValueError as e:
     print(f"Erro na análise de ângulos: {e}")
-
-simulacao.plotar_pista_e_tracado()
-

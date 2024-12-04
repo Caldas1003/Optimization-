@@ -65,6 +65,10 @@ class Pista:
         for i in range(len(X_esq)):
             ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], color='gray', linewidth=0.5)
 
+        # Adicionar as linhas de largada e chegada
+        ax.plot([X_esq[0], X_dir[0]], [Y_esq[0], Y_dir[0]], color='black', linestyle='--', label='Linha de Largada')
+        ax.plot([X_esq[-1], X_dir[-1]], [Y_esq[-1], Y_dir[-1]], color='purple', linestyle='--', label='Linha de Chegada')
+
         ax.set_xlabel('X (metros)')
         ax.set_ylabel('Y (metros)')
         ax.set_title('Simulação da Pista')

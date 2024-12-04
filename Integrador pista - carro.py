@@ -1,14 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import random  # Importando para gerar o portão aleatório
 from Pista import Pista, gps_coords
 
 class SimulacaoCarro:
-    def __init__(self, pista):
+    def __init__(self, pista, sentido='largada_para_chegada'):
         self.pista = pista
         self.checkpoints = []
         self.portoes = []
         self.tracado = []
         self.angulos = []
+        self.sentido = sentido  # Definir a direção do traçado
 
     def gerar_checkpoints(self, num_checkpoints=49, num_portoes=10):
         t = np.linspace(0, len(self.pista.X_centro) - 1, num_checkpoints, dtype=int)
@@ -28,41 +30,84 @@ class SimulacaoCarro:
                 portoes_checkpoint.append((x, y))
             self.portoes.append(portoes_checkpoint)
 
+    def selecionar_portao_aleatorio(self):
+        """Seleciona um portão aleatório dependendo do sentido."""
+        if self.sentido == 'largada_para_chegada':
+            portao_inicial = random.choice(self.portoes[0])  # Portão aleatório na linha de largada
+        elif self.sentido == 'chegada_para_largada':
+            portao_inicial = random.choice(self.portoes[-1])  # Portão aleatório na linha de chegada
+        return portao_inicial
+
     def simular_tracado(self, angulo_maximo=10):
-        portao_atual = self.portoes[0][len(self.portoes[0]) // 2]  # Começa no portão central
+        # Selecionar o ponto de partida aleatório
+        portao_atual = self.selecionar_portao_aleatorio()
         self.tracado.append(portao_atual)
 
-        for i in range(len(self.portoes) - 1):
-            portoes_atual = self.portoes[i]
-            portoes_prox = self.portoes[i + 1]
+        if self.sentido == 'largada_para_chegada':
+            for i in range(len(self.portoes) - 1):
+                portoes_atual = self.portoes[i]
+                portoes_prox = self.portoes[i + 1]
 
-            distancias = [np.linalg.norm(np.array(portao_atual) - np.array(portao)) for portao in portoes_prox]
-            angulos_validos = []
+                distancias = [np.linalg.norm(np.array(portao_atual) - np.array(portao)) for portao in portoes_prox]
+                angulos_validos = []
 
-            for j, portao in enumerate(portoes_prox):
-                if len(self.tracado) > 1:
-                    p_anterior = np.array(self.tracado[-2])
-                    p_atual = np.array(self.tracado[-1])
-                    direcao_anterior = p_atual - p_anterior
-                    direcao_atual = np.array(portao) - np.array(portao_atual)
+                for j, portao in enumerate(portoes_prox):
+                    if len(self.tracado) > 1:
+                        p_anterior = np.array(self.tracado[-2])
+                        p_atual = np.array(self.tracado[-1])
+                        direcao_anterior = p_atual - p_anterior
+                        direcao_atual = np.array(portao) - np.array(portao_atual)
 
-                    if np.linalg.norm(direcao_anterior) == 0 or np.linalg.norm(direcao_atual) == 0:
-                        continue
+                        if np.linalg.norm(direcao_anterior) == 0 or np.linalg.norm(direcao_atual) == 0:
+                            continue
 
-                    cos_theta = np.dot(direcao_anterior, direcao_atual) / (np.linalg.norm(direcao_anterior) * np.linalg.norm(direcao_atual))
-                    cos_theta = np.clip(cos_theta, -1.0, 1.0)
-                    angulo = np.degrees(np.arccos(cos_theta))
+                        cos_theta = np.dot(direcao_anterior, direcao_atual) / (np.linalg.norm(direcao_anterior) * np.linalg.norm(direcao_atual))
+                        cos_theta = np.clip(cos_theta, -1.0, 1.0)
+                        angulo = np.degrees(np.arccos(cos_theta))
 
-                    if angulo <= angulo_maximo:
-                        angulos_validos.append((j, distancias[j]))
+                        if angulo <= angulo_maximo:
+                            angulos_validos.append((j, distancias[j]))
 
-            if angulos_validos:
-                indice_portao_prox = min(angulos_validos, key=lambda x: x[1])[0]
-            else:
-                indice_portao_prox = np.argmin(distancias)
+                if angulos_validos:
+                    indice_portao_prox = min(angulos_validos, key=lambda x: x[1])[0]
+                else:
+                    indice_portao_prox = np.argmin(distancias)
 
-            portao_atual = portoes_prox[indice_portao_prox]
-            self.tracado.append(portao_atual)
+                portao_atual = portoes_prox[indice_portao_prox]
+                self.tracado.append(portao_atual)
+
+        elif self.sentido == 'chegada_para_largada':
+            for i in range(len(self.portoes) - 1, 0, -1):
+                portoes_atual = self.portoes[i]
+                portoes_prox = self.portoes[i - 1]
+
+                distancias = [np.linalg.norm(np.array(portao_atual) - np.array(portao)) for portao in portoes_prox]
+                angulos_validos = []
+
+                for j, portao in enumerate(portoes_prox):
+                    if len(self.tracado) > 1:
+                        p_anterior = np.array(self.tracado[-2])
+                        p_atual = np.array(self.tracado[-1])
+                        direcao_anterior = p_atual - p_anterior
+                        direcao_atual = np.array(portao) - np.array(portao_atual)
+
+                        if np.linalg.norm(direcao_anterior) == 0 or np.linalg.norm(direcao_atual) == 0:
+                            continue
+
+                        cos_theta = np.dot(direcao_anterior, direcao_atual) / (np.linalg.norm(direcao_anterior) * np.linalg.norm(direcao_atual))
+                        cos_theta = np.clip(cos_theta, -1.0, 1.0)
+                        angulo = np.degrees(np.arccos(cos_theta))
+
+                        if angulo <= angulo_maximo:
+                            angulos_validos.append((j, distancias[j]))
+
+                if angulos_validos:
+                    indice_portao_prox = min(angulos_validos, key=lambda x: x[1])[0]
+                else:
+                    indice_portao_prox = np.argmin(distancias)
+
+                portao_atual = portoes_prox[indice_portao_prox]
+                self.tracado.append(portao_atual)
 
     def analise_angulos(self):
         angulos = []
@@ -117,7 +162,10 @@ class SimulacaoCarro:
 
 # Instanciar a pista e a simulação
 pista = Pista(gps_coords, largura_pista=6)
-simulacao = SimulacaoCarro(pista)
+
+# Escolha o sentido: 'largada_para_chegada' ou 'chegada_para_largada'
+sentido = 'chegada_para_largada'  # Altere para 'chegada_para_largada' para inverter a direção
+simulacao = SimulacaoCarro(pista, sentido=sentido)
 
 # Executar a simulação
 simulacao.gerar_checkpoints()

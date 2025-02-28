@@ -26,6 +26,8 @@ class PistaComAtrito:
 
         # Calcular as bordas esquerda e direita da pista
         self.esquerda, self.direita = self.calcular_bordas()
+
+        self.CHECKPOINTS = self.build_checkpoints()
     
     def latlon_to_xy(self, lat, lon):
         R = 6371000  # raio da Terra em metros
@@ -118,6 +120,83 @@ class PistaComAtrito:
         
         plt.show()
 
+    def build_checkpoints(self) -> list[list]:
+        X_malha, Y_malha, Z_malha = self.gerar_malha()
+        X_left = X_malha[0][0]
+        X_right = X_malha[0][1]
+        Y_left = Y_malha[0][0]
+        Y_right = Y_malha[0][1]
+        Z_left = Z_malha[0][0]
+        Z_right = Z_malha[0][1]
+
+        gates = list()
+        for i, value in enumerate(X_left):
+            left_point = (X_left[i], Y_left[i], Z_left[i])
+            right_point = (X_right[i], Y_right[i], Z_right[i])
+
+            num_points = 100
+            t = np.linspace(0, 1, num_points)
+            waypoints = np.outer(1 - t, left_point) + np.outer(
+                t, right_point
+            )  # 100 points between the left and right points
+
+            gates.append(waypoints)
+
+        return gates
+
+    def plotar_tracado_na_pista(self, saveAs, waypoints, track_size=200):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        
+        X_esq, Y_esq, Z_esq = zip(*self.esquerda)
+        X_dir, Y_dir, Z_dir = zip(*self.direita)
+        tracado_X, tracado_Y, tracado_Z = [], [], []
+
+        for i, value in enumerate(waypoints):
+            waypoint = self.CHECKPOINTS[i][value] # array de 3 posições (x, y, z)
+            tracado_X.append(waypoint[0])
+            tracado_Y.append(waypoint[1])
+            tracado_Z.append(waypoint[2])
+
+        ax.plot(tracado_X, tracado_Y, color='blue', label="Traçado", linewidth=0.5)
+        ax.plot(X_esq[:track_size], Y_esq[:track_size], color='red', label="Borda Esquerda", linestyle='--', linewidth=0.5)
+        ax.plot(X_dir[:track_size], Y_dir[:track_size], color='red', label="Borda Direita", linestyle='--', linewidth=0.5)
+        
+        # for i in range(len(X_esq)):
+        #     ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], [Z_esq[i], Z_dir[i]], color='gray')
+        
+        ax.set_xlabel('X (metros)')
+        ax.set_ylabel('Y (metros)')
+        # ax.set_zlabel('Z (altitude metros)')
+        ax.set_title('Exibição do traçado na pista')
+        ax.grid(True)
+        ax.legend()
+        
+        plt.savefig(saveAs)
+
+    def plotar_parcial(self, parcial=50):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        
+        X_esq, Y_esq, Z_esq = zip(*self.esquerda)
+        X_dir, Y_dir, Z_dir = zip(*self.direita)
+        tracado_X, tracado_Y, tracado_Z = [], [], []
+
+        ax.plot(X_esq[:parcial], Y_esq[:parcial], color='red', label="Borda Esquerda")
+        ax.plot(X_dir[:parcial], Y_dir[:parcial], color='red', label="Borda Direita")
+        
+        # for i in range(len(X_esq)):
+        #     ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], [Z_esq[i], Z_dir[i]], color='gray')
+        
+        ax.set_xlabel('X (metros)')
+        ax.set_ylabel('Y (metros)')
+        # ax.set_zlabel('Z (altitude metros)')
+        ax.set_title('parcial')
+        ax.grid(True)
+        ax.legend()
+        
+        plt.savefig("parcial")
+
 # Definir coordenadas e elevacoes
 gps_coords = [
     (-22.738762, -47.533146),
@@ -148,4 +227,6 @@ ponto_teste = (228.1386, -2.8528, 1)
 # pista.verificar_atrito(ponto_teste)
 
 # # Plotar a pista
-# pista.plotar_pista()
+# TRACK.plotar_pista()
+
+# TRACK.plotar_parcial(70)

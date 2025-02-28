@@ -2,7 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 from datetime import datetime
-from checkpoint_builder import CHECKPOINTS
+
+from PistaComAtrito import TRACK
 from diferential_evolution import customDifferentialEvolution
 
 
@@ -46,7 +47,7 @@ def total_distance(waypoints: list) -> float:
         last_waypoint = waypoints[i - 1]
         current_waypoint = waypoints[i]
         distance_between_waypoints = np.linalg.norm(
-            CHECKPOINTS[i][current_waypoint] - CHECKPOINTS[i - 1][last_waypoint]
+            TRACK.CHECKPOINTS[i][current_waypoint] - TRACK.CHECKPOINTS[i - 1][last_waypoint]
         )
         total_distance += distance_between_waypoints
 
@@ -60,9 +61,7 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
     
     g = 9.8 # gravity (9.8 m/s²)
     allowed_centrifugal_force = 1.5 * g
-    furthest_checkpoint_achieved = number_of_points - 1
     total_time = 0
-    reason_for_failure = "none"
     
     for i in range(number_of_points):
         if i == number_of_points - 1:
@@ -74,9 +73,9 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
         current = i
         following = i + 1
 
-        previous_point = CHECKPOINTS[previous][waypoints[previous]]
-        current_point = CHECKPOINTS[current][waypoints[current]]
-        following_point = CHECKPOINTS[following][waypoints[following]]
+        previous_point = TRACK.CHECKPOINTS[previous][waypoints[previous]]
+        current_point = TRACK.CHECKPOINTS[current][waypoints[current]]
+        following_point = TRACK.CHECKPOINTS[following][waypoints[following]]
 
         current_speed = speeds[current]
         following_speed = speeds[following]
@@ -86,11 +85,10 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
         if turn_radius > 0:
             centrifugal_force = (current_speed**2) / turn_radius
             if centrifugal_force > allowed_centrifugal_force:
-                furthest_checkpoint_achieved = current
-                reason_for_failure = "turn_speed"
-                break
+                total_time += ((centrifugal_force / allowed_centrifugal_force)**2) * 10
+                continue
 
-            available_percentage = 1 - (centrifugal_force / allowed_centrifugal_force)
+            available_percentage -= (centrifugal_force / allowed_centrifugal_force)
 
         gained_speed = following_speed > current_speed
         maximum_allowed_acceleration = 0
@@ -106,28 +104,24 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
         necessary_acceleration = np.abs((following_speed**2 - current_speed**2) / (2*stretch_distance))
     
         if necessary_acceleration > maximum_allowed_acceleration:
-            furthest_checkpoint_achieved = current
-            reason_for_failure = "acceleration"
-            break
+            total_time += ((necessary_acceleration/maximum_allowed_acceleration)**2) * 10 if maximum_allowed_acceleration > 0 else 10
+            continue
 
-        try:
-            total_time += (following_speed - current_speed) / necessary_acceleration if necessary_acceleration != 0 else stretch_distance / current_speed
-        except:
-            print(f"following_speed: {following_speed}")
-            print(f"current_speed: {current_speed}")
-            print(f"necessary_acceleration: {necessary_acceleration}")
+        total_time += np.abs(following_speed - current_speed) / necessary_acceleration if necessary_acceleration != 0 else stretch_distance / current_speed
 
-    return total_time + (((number_of_points + 1)/(furthest_checkpoint_achieved + 1)) - 1)*500000, furthest_checkpoint_achieved, reason_for_failure
+    return total_time
 
 
 def run():
     start_time = time.time()
     F = 0.5
     CR = 0.85
-    max_gen = 100
+    max_gen = 6400
     pop_size = 4000
+    track_size = 70
 
-    best_params, best_fitness, standard_deviation, data = customDifferentialEvolution(lapTime, [[0, 99], [0.278, 22.22]], max_generations=max_gen, F=F, CR=CR, pop_size=pop_size)
+    timestamp = datetime.now().strftime("%H%M %d-%m-%Y")
+    best_params, best_fitness, standard_deviation, data = customDifferentialEvolution(lapTime, [[0, 99], [0.278, 22.22]], max_generations=max_gen, F=F, CR=CR, pop_size=pop_size, track_size=track_size)
 
     time_elapsed = time.time() - start_time
     hours, seconds_remain = divmod(time_elapsed, 3600)
@@ -136,46 +130,32 @@ def run():
     print(f"Melhores parâmetros encontrados: {best_params}")
     print(f"Menor tempo total encontrada: {best_fitness}")
     print(f"Desvio padrão: {standard_deviation}")
-    print(f"Ponto mais longe: {data[2][len(data[2]) - 1]}")
     print(f"Total time elapsed: {int(hours):02}:{int(minutes):02}:{int(seconds):02}")
 
 
     generations = [i + 1 for i in range(len(data[0]))]
     plt.figure(figsize=(18, 10))
-    plt.suptitle(f"Tempo gasto: {int(hours):02}:{int(minutes):02}:{int(seconds):02}\nDesvio padrão: {standard_deviation:.2f}\nMenor tempo: {best_fitness:.2f}\nPonto mais longe alcançado: {data[2][len(data[2]) - 1]}\n", fontsize=16)
+    plt.suptitle(f"Tempo gasto: {int(hours):02}:{int(minutes):02}:{int(seconds):02}\nDesvio padrão: {standard_deviation:.2f}\nMenor tempo: {best_fitness:.2f}\n", fontsize=16)
     plt.subplots_adjust(wspace=0.8, hspace=1.2)
 
     plt.subplot(4, 1, 1)
     plt.plot(generations, data[0])
     plt.xlabel("Geração")
     plt.ylabel("Melhor tempo de volta")
-    plt.ylim(0 , 2500)
-    plt.xlim(0, max_gen)
+    # plt.ylim(0 , 2500)
+    # plt.xlim(0, max_gen)
 
     plt.subplot(4, 1, 2)
     plt.plot(generations, data[1])
     plt.xlabel("Geração")
     plt.ylabel("Desvio Padrão")
     plt.ylim(0, 10)
-    plt.xlim(0, max_gen)
+    # plt.xlim(0, max_gen)
 
-    plt.subplot(4, 1, 3)
-    plt.plot(generations, data[2])
-    plt.xlabel("Geração")
-    plt.ylabel("Ponto mais longe alcançado")
-    plt.xlim(0, max_gen)
 
-    # categories, count = np.unique(data[4], return_counts=True)
-    # print(categories)
-    # print(count)
-    # plt.subplot(4, 1, 4)
-    # plt.bar(categories, count)
-    # plt.xlabel("Motivo da falha")
-    # plt.ylabel("Quantidade")
-    # plt.xticks(np.arange(len(categories)), categories)
-    # plt.subplot(2, 1, 4).plot(generations, data[3], ylabel="Desvio Padrão", xlabel="Geração")
+    fileName = f"{timestamp} pop_size={pop_size} max_gen={max_gen} F={F} CR={CR}"
 
-    timestamp = datetime.now().strftime("%H%M %d-%m-%Y")
-    plt.savefig(f"charts/{timestamp} pop_size={pop_size} max_gen={max_gen} F={F} CR={CR}.png")
+    plt.savefig(f"charts_pen10/{fileName} charts.png")
+    TRACK.plotar_tracado_na_pista(f"charts_pen10/{fileName} tracado.png", best_params[0], track_size)
 
 run()

@@ -10,39 +10,32 @@ def customDifferentialEvolution(
     F=0.8,
     CR=0.9,
     max_generations=1000,
+    track_size=200,
 ):
     
 
-    middle_of_track = np.ones(200, dtype=int) * 46
-    waypoints_population = np.random.randint(bounds[0][0], bounds[0][1], (pop_size, 200))
-    waypoints_population[pop_size // 2] = middle_of_track  
-    speeds_population = np.random.uniform(bounds[1][0], 3, (pop_size, 200))
+    # middle_of_track = np.ones(200, dtype=int) * 46
+    waypoints_population = np.random.randint(bounds[0][0], bounds[0][1], (pop_size, track_size))
+    # waypoints_population[pop_size // 2] = middle_of_track  
+    speeds_population = np.random.uniform(bounds[1][0], bounds[1][1], (pop_size, track_size))
 
     results = np.array([func(waypoints_population[i], speeds_population[i]) for i in range(pop_size)])
-    lap_times = [result[0].astype(float) for result in results]
-    furthest_points_achieved = [result[1].astype(int) for result in results]
-    
-    # reasons = [result[2] for result in results]
+    lap_times = [result.astype(float) for result in results]
     
     best_results = []
     std_deviations = []
-    furthest_points_achieved_per_gen = []
-    best_result_is_the_furthest = []
 
     for gen in range(max_generations):
         print(f"Geração {gen + 1}", end="\r")
 
         best_lap_index = np.argmin(lap_times)
-        furthest_point_index = np.argmax(furthest_points_achieved)
 
         std_dev = np.std(lap_times)
 
-        best_result_is_the_furthest.append(best_lap_index == furthest_point_index)
         best_results.append(lap_times[best_lap_index])
-        furthest_points_achieved_per_gen.append(furthest_points_achieved[furthest_point_index])
         std_deviations.append(std_dev)
 
-        if std_dev < 0.1:
+        if std_dev < 2:
             print(f"Convergência alcançada na geração {gen}.")
             break
 
@@ -56,14 +49,12 @@ def customDifferentialEvolution(
             waypoints_offspring = generateOffspring(waypoints_trial_vector, waypoints_parent, CR)
             speeds_offspring = generateOffspring(speeds_trial_vector, speeds_parent, CR)
 
-            offspring_result, fpa_offspring, reason_for_failure = func(waypoints_offspring, speeds_offspring)
+            offspring_result = func(waypoints_offspring, speeds_offspring)
             offspring_is_fitter = np.all(offspring_result < lap_times[i])
             if offspring_is_fitter:
                 waypoints_population[i] = waypoints_offspring
                 speeds_population[i] = speeds_offspring
                 lap_times[i] = offspring_result
-                furthest_points_achieved[i] = fpa_offspring
-                # reasons.append(reason_for_failure)
 
         gen += 1
 
@@ -73,7 +64,7 @@ def customDifferentialEvolution(
     best_fitness = lap_times[best_idx]
     standard_deviation = np.std(lap_times)
 
-    return (best_waypoints, best_speeds), best_fitness, standard_deviation, (best_results, std_deviations, furthest_points_achieved_per_gen, best_result_is_the_furthest)
+    return (best_waypoints, best_speeds), best_fitness, standard_deviation, (best_results, std_deviations)
 
 
 def generateTrialVector(population, parent_index, F, bounds):

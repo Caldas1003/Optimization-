@@ -3,7 +3,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import CubicSpline
-from mpl_toolkits.mplot3d import Axes3D
 
 class PistaComAtrito:
     def __init__(self, gps_coords, elevacao, atrito, largura_pista=3):

@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Callable
 from numpy.typing import NDArray
+from PistaComAtrito import TRACK
 
 
 def customDifferentialEvolution(
@@ -11,6 +12,8 @@ def customDifferentialEvolution(
     CR=0.9,
     max_generations=1000,
     track_size=200,
+    gensToPlot=[],
+    folder="charts"
 ):
     
 
@@ -26,6 +29,11 @@ def customDifferentialEvolution(
     std_deviations = []
 
     for gen in range(max_generations):
+        if gen in gensToPlot:
+            best_idx = np.argmin(lap_times)
+            best_waypoints = waypoints_population[best_idx]
+            TRACK.plotar_tracado_na_pista(f"{folder}/tracado geração {gen} - teste continuo.png", best_waypoints, track_size)
+
         print(f"Geração {gen + 1}", end="\r")
 
         best_lap_index = np.argmin(lap_times)
@@ -35,7 +43,7 @@ def customDifferentialEvolution(
         best_results.append(lap_times[best_lap_index])
         std_deviations.append(std_dev)
 
-        if std_dev < 2:
+        if std_dev < 0.1:
             print(f"Convergência alcançada na geração {gen}.")
             break
 
@@ -56,13 +64,12 @@ def customDifferentialEvolution(
                 speeds_population[i] = speeds_offspring
                 lap_times[i] = offspring_result
 
-        gen += 1
-
     best_idx = np.argmin(lap_times)
     best_waypoints = waypoints_population[best_idx]
     best_speeds = speeds_population[best_idx]
     best_fitness = lap_times[best_idx]
     standard_deviation = np.std(lap_times)
+    TRACK.plotar_tracado_na_pista(f"{folder}/tracado geração {max_generations} - teste continuo.png", best_waypoints, track_size)
 
     return (best_waypoints, best_speeds), best_fitness, standard_deviation, (best_results, std_deviations)
 

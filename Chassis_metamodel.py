@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from scipy.integrate import cumulative_trapezoid, solve_ivp
 import functools
 
-# ---------------------- Classe Chassis (mantida como está) ----------------------
 
 class Chassis:
     def __init__(self, 

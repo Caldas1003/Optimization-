@@ -8,7 +8,7 @@ class control:
                 params=None, mass=None, weight_distribution=None, rear_Ca=None, front_Ca=None, 
                 Ld=None, Lt=None, W2=None, yaw_inertia=None, roll_inertia=None, pitch_inertia=None, hcg=None):
 
-        self.tire_Sa = tire_Sa  # Ângulo de deslizamento lateral do pneu [rad]
+        self.front_tire_Sa = tire_Sa  # Ângulo de deslizamento lateral do pneu [rad]
         self.rear_tire_Sa = tire_Sa / 10
         self.front_tire_Ls = front_tire_Ls  # Escorregamento longitudinal frontal [adimensional]
         self.rear_tire_Ls = rear_tire_Ls    # Escorregamento longitudinal traseiro [adimensional]
@@ -47,11 +47,15 @@ class control:
         By = Cs / (Cy * D)
         return E, Cy, Cx, Bx, By, D
 
-    def lateral_force(self, tire_Fz, tire_Ca):
+    def lateral_force(self, tire_Fz, tire_Ca, front):
+        if front:
+            tire_Sa = self.front_tire_Sa
+        else:
+            tire_Sa = self.rear_tire_Sa
         # Desembalando os parâmetros de Pacejka
         E, Cy, Cx, Bx, By, D = control.pacejka_params(self, tire_Fz)
         # Calculando a força lateral do pneu
-        tire_lateral_force = D * np.sin(Cy * np.arctan(By * self.tire_Sa - E * (By * self.tire_Sa - np.arctan(By * self.tire_Sa))))
+        tire_lateral_force = D * np.sin(Cy * np.arctan(By * tire_Sa - E * (By * tire_Sa - np.arctan(By * tire_Sa))))
         # Calculando a força de camber
         camber_thrust = D / 2 * np.sin(Cy * np.arctan(By * tire_Ca))
         return tire_lateral_force + camber_thrust
@@ -68,10 +72,10 @@ class control:
         return tire_longitudinal_force
     
     def yaw(self):
-        tire_y_de = control.lateral_force(self, tire_Fz=self.tire_Fz_de, tire_Ca=self.front_Ca)
-        tire_y_dd = control.lateral_force(self, tire_Fz=self.tire_Fz_dd, tire_Ca=self.front_Ca)
-        tire_y_te = control.lateral_force(self, tire_Fz=self.tire_Fz_te, tire_Ca=self.rear_Ca)
-        tire_y_td = control.lateral_force(self, tire_Fz=self.tire_Fz_td, tire_Ca=self.rear_Ca)
+        tire_y_de = control.lateral_force(self, tire_Fz=self.tire_Fz_de, tire_Ca=self.front_Ca, front=True)
+        tire_y_dd = control.lateral_force(self, tire_Fz=self.tire_Fz_dd, tire_Ca=self.front_Ca, front=True)
+        tire_y_te = control.lateral_force(self, tire_Fz=self.tire_Fz_te, tire_Ca=self.rear_Ca, front=False)
+        tire_y_td = control.lateral_force(self, tire_Fz=self.tire_Fz_td, tire_Ca=self.rear_Ca, front=False)
 
         tire_x_de = control.longitudinal_force(self, tire_Fz=self.tire_Fz_de, front=True)
         tire_x_dd = control.longitudinal_force(self, tire_Fz=self.tire_Fz_dd, front=True)
@@ -85,10 +89,10 @@ class control:
         return ddot_yaw
     
     def roll_moment(self):
-        tire_y_de = control.lateral_force(self, tire_Fz=self.tire_Fz_de, tire_Ca=self.front_Ca)
-        tire_y_dd = control.lateral_force(self, tire_Fz=self.tire_Fz_dd, tire_Ca=self.front_Ca)
-        tire_y_te = control.lateral_force(self, tire_Fz=self.tire_Fz_te, tire_Ca=self.rear_Ca)
-        tire_y_td = control.lateral_force(self, tire_Fz=self.tire_Fz_td, tire_Ca=self.rear_Ca)
+        tire_y_de = control.lateral_force(self, tire_Fz=self.tire_Fz_de, tire_Ca=self.front_Ca, front=True)
+        tire_y_dd = control.lateral_force(self, tire_Fz=self.tire_Fz_dd, tire_Ca=self.front_Ca, front=True)
+        tire_y_te = control.lateral_force(self, tire_Fz=self.tire_Fz_te, tire_Ca=self.rear_Ca, front=False)
+        tire_y_td = control.lateral_force(self, tire_Fz=self.tire_Fz_td, tire_Ca=self.rear_Ca, front=False)
 
         roll_moment = (tire_y_de + tire_y_dd + tire_y_te + tire_y_td) * self.hcg
         ddot_roll = roll_moment / self.roll_inertia
@@ -128,7 +132,7 @@ class control:
         self.tire_Fz_te = self.tire_Fz_te + roll_load + pitch_load
         
     
-    def model_input():
+    def model_input(degrees):
         # Parâmetros fornecidos
         E = 0.3336564873588197
         C_y = 1.627
@@ -140,9 +144,9 @@ class control:
         Lt = 1.2    # Distância do CG para traseiro [m]
         W2 = 0.45   # Metade da largura do carro [m]
         H_cg = 0.3  # Altura do centro de gravidade [m]
-        I_psi = 1e2   # Inércia em Yaw [kg.m^2]
-        I_rho = 1e2   # Inércia em Rolagem [kg.m^2]
-        I_beta = 1e2  # Inércia em Pitch [kg.m^2]
+        I_psi = 1e4   # Inércia em Yaw [kg.m^2]
+        I_rho = 1e4   # Inércia em Rolagem [kg.m^2]
+        I_beta = 1e4  # Inércia em Pitch [kg.m^2]
         Mc = 280      # Massa do carro [kg]
         C_alpha_d = 0.5  # Ângulo de Câmber Dianteiro [rad]
         C_alpha_t = 0.5  # Ângulo de Câmber Traseiro [rad]
@@ -161,7 +165,7 @@ class control:
                         yaw_inertia=I_psi, roll_inertia=I_rho, pitch_inertia=I_beta, hcg=H_cg)
         
         # Vetor de tempo
-        t = np.linspace(0, 10, 100)  # de 0 a 10 segundos
+        t = np.linspace(0, 5, 100)  # de 0 a 5 segundos
 
         # Calculando acelerações angulares
         yaw_ddot = []
@@ -186,42 +190,82 @@ class control:
         roll_dot, roll_disp = control.integrate_motion(t, roll_ddot)
         pitch_dot, pitch_disp = control.integrate_motion(t, pitch_ddot)
 
-        # Plotando acelerações, velocidades e deslocamentos para yaw
-        plt.figure(figsize=(12, 8))
-        plt.subplot(3, 1, 1)
-        plt.plot(t, yaw_ddot, label='Yaw Acceleration', color='r')
-        plt.plot(t, yaw_dot, label='Yaw Velocity', linestyle='--', color='m')
-        plt.plot(t, yaw_disp, label='Yaw Displacement', linestyle='-.', color='k')
-        plt.xlabel('Tempo [s]')
-        plt.ylabel('Yaw [rad, rad/s, rad/s^2]')
-        plt.title('Yaw: Aceleração, Velocidade e Deslocamento')
-        plt.legend()
-        plt.grid()
+        if degrees:
+            # Plotando acelerações, velocidades e deslocamentos para yaw
+            plt.figure(figsize=(12, 8))
+            plt.subplot(3, 1, 1)
+            plt.plot(t, np.rad2deg(yaw_ddot), label='Yaw Acceleration [°/s²]', color='r')
+            plt.plot(t, np.rad2deg(yaw_dot), label='Yaw Velocity [°/s]', linestyle='--', color='m')
+            plt.plot(t, np.rad2deg(yaw_disp), label='Yaw Displacement [°]', linestyle='-.', color='k')
+            plt.xlabel('Tempo [s]')
+            plt.ylabel('Yaw [graus]')
+            plt.title('Yaw: Aceleração, Velocidade e Deslocamento')
+            plt.legend()
+            plt.grid()
 
-        # Plotando acelerações, velocidades e deslocamentos para roll
-        plt.subplot(3, 1, 2)
-        plt.plot(t, roll_ddot, label='Roll Acceleration', color='g')
-        plt.plot(t, roll_dot, label='Roll Velocity', linestyle='--', color='c')
-        plt.plot(t, roll_disp, label='Roll Displacement', linestyle='-.', color='b')
-        plt.xlabel('Tempo [s]')
-        plt.ylabel('Roll [rad, rad/s, rad/s^2]')
-        plt.title('Roll: Aceleração, Velocidade e Deslocamento')
-        plt.legend()
-        plt.grid()
+            # Plotando acelerações, velocidades e deslocamentos para roll
+            plt.subplot(3, 1, 2)
+            plt.plot(t, np.rad2deg(roll_ddot), label='Roll Acceleration [°/s²]', color='g')
+            plt.plot(t, np.rad2deg(roll_dot), label='Roll Velocity [°/s]', linestyle='--', color='c')
+            plt.plot(t, np.rad2deg(roll_disp), label='Roll Displacement [°]', linestyle='-.', color='b')
+            plt.xlabel('Tempo [s]')
+            plt.ylabel('Roll [graus]')
+            plt.title('Roll: Aceleração, Velocidade e Deslocamento')
+            plt.legend()
+            plt.grid()
 
-        # Plotando acelerações, velocidades e deslocamentos para pitch
-        plt.subplot(3, 1, 3)
-        plt.plot(t, pitch_ddot, label='Pitch Acceleration', color='orange')
-        plt.plot(t, pitch_dot, label='Pitch Velocity', linestyle='--', color='purple')
-        plt.plot(t, pitch_disp, label='Pitch Displacement', linestyle='-.', color='brown')
-        plt.xlabel('Tempo [s]')
-        plt.ylabel('Pitch [rad, rad/s, rad/s^2]')
-        plt.title('Pitch: Aceleração, Velocidade e Deslocamento')
-        plt.legend()
-        plt.grid()
+            # Plotando acelerações, velocidades e deslocamentos para pitch
+            plt.subplot(3, 1, 3)
+            plt.plot(t, np.rad2deg(pitch_ddot), label='Pitch Acceleration [°/s²]', color='orange')
+            plt.plot(t, np.rad2deg(pitch_dot), label='Pitch Velocity [°/s]', linestyle='--', color='purple')
+            plt.plot(t, np.rad2deg(pitch_disp), label='Pitch Displacement [°]', linestyle='-.', color='brown')
+            plt.xlabel('Tempo [s]')
+            plt.ylabel('Pitch [graus]')
+            plt.title('Pitch: Aceleração, Velocidade e Deslocamento')
+            plt.legend()
+            plt.grid()
 
-        plt.tight_layout()
-        plt.show()
+            plt.tight_layout()
+            plt.show()
+        
+        else:
+            # Plotando acelerações, velocidades e deslocamentos para yaw
+            plt.figure(figsize=(12, 8))
+            plt.subplot(3, 1, 1)
+            plt.plot(t, yaw_ddot, label='Yaw Acceleration', color='r')
+            plt.plot(t, yaw_dot, label='Yaw Velocity', linestyle='--', color='m')
+            plt.plot(t, yaw_disp, label='Yaw Displacement', linestyle='-.', color='k')
+            plt.xlabel('Tempo [s]')
+            plt.ylabel('Yaw [rad, rad/s, rad/s^2]')
+            plt.title('Yaw: Aceleração, Velocidade e Deslocamento')
+            plt.legend()
+            plt.grid()
+
+            # Plotando acelerações, velocidades e deslocamentos para roll
+            plt.subplot(3, 1, 2)
+            plt.plot(t, roll_ddot, label='Roll Acceleration', color='g')
+            plt.plot(t, roll_dot, label='Roll Velocity', linestyle='--', color='c')
+            plt.plot(t, roll_disp, label='Roll Displacement', linestyle='-.', color='b')
+            plt.xlabel('Tempo [s]')
+            plt.ylabel('Roll [rad, rad/s, rad/s^2]')
+            plt.title('Roll: Aceleração, Velocidade e Deslocamento')
+            plt.legend()
+            plt.grid()
+
+            # Plotando acelerações, velocidades e deslocamentos para pitch
+            plt.subplot(3, 1, 3)
+            plt.plot(t, pitch_ddot, label='Pitch Acceleration', color='orange')
+            plt.plot(t, pitch_dot, label='Pitch Velocity', linestyle='--', color='purple')
+            plt.plot(t, pitch_disp, label='Pitch Displacement', linestyle='-.', color='brown')
+            plt.xlabel('Tempo [s]')
+            plt.ylabel('Pitch [rad, rad/s, rad/s^2]')
+            plt.title('Pitch: Aceleração, Velocidade e Deslocamento')
+            plt.legend()
+            plt.grid()
+
+            plt.tight_layout()
+            plt.show()
+
 
 # Executa a função principal
-control.model_input()
+control.model_input(degrees=True)

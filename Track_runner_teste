@@ -1,9 +1,10 @@
 import numpy as np
+import os
 import matplotlib.pyplot as plt
 import time
 from datetime import datetime
 
-from PistaComAtrito import TRACK
+from Pista import TRACK
 from diferential_evolution import customDifferentialEvolution
 
 
@@ -64,9 +65,6 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
     total_time = 0
     lambda1=1
     lambda2=1
-    distance=total_distance(waypoints)
-    if distance>=1150:
-        total_time+=((distance/1150)**2)*100
 
     for i in range(number_of_points):
         if i == number_of_points - 1:
@@ -85,13 +83,26 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
         current_speed = speeds[current]
         following_speed = speeds[following]
 
+        # 🛑 Penalidade se não escolher o waypoint mais próximo
+        next_checkpoint_candidates = TRACK.CHECKPOINTS[following]
+        distances = [np.linalg.norm(candidate - current_point) for candidate in next_checkpoint_candidates]
+        closest_index = int(np.argmin(distances))
+
+        if waypoints[following] != closest_index:
+            penalidade_distancia_extra = distances[waypoints[following]] - distances[closest_index]
+            total_time +=abs( (penalidade_distancia_extra/distances[closest_index])**2 * 100)  # ajuste o fator conforme necessário
+
         turn_radius = get_turn_radius(previous_point, current_point, following_point)
+     
+        #if turn_radius > 120:  # trecho praticamente reto
+        #    if current_speed < 10:  # abaixo de 36 km/h
+        #        total_time += abs(((10 - current_speed)/current_speed) * 100)
 
         if turn_radius > 0:
             centrifugal_force = (current_speed**2) / turn_radius
             if centrifugal_force > allowed_centrifugal_force:
-                total_time += abs((centrifugal_force/allowed_centrifugal_force))*lambda1*10
-                lambda1 += 1
+                total_time += abs((centrifugal_force/allowed_centrifugal_force))*lambda1*100
+                #lambda1 += 1
 
                 continue
 
@@ -111,8 +122,8 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
         necessary_acceleration = ((following_speed*2 - current_speed*2) / (2*stretch_distance))
     
         if necessary_acceleration > maximum_allowed_acceleration:
-            total_time += abs((necessary_acceleration/maximum_allowed_acceleration))*lambda2*10
-            lambda2 += 1
+            total_time += abs((necessary_acceleration/maximum_allowed_acceleration))*lambda2*100
+            #lambda2 += 1
 
             continue
 
@@ -120,14 +131,33 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
 
     return total_time
 
+def save_results(best_params, best_fitness, distance, standard_deviation, max_gen, pop_size,time,time_stamp):
+    folder_path = "resultados_da_volta"
+    os.makedirs(folder_path, exist_ok=True)
+    hours,minutes,seconds = time
+    filename = f"{time_stamp}_gen={max_gen}_pop={pop_size}.txt"
+    file_path = os.path.join(folder_path, filename)
+    
+    content = (f"Melhores parâmetros encontrados: {best_params}\n"
+            f"Menor tempo total encontrada: {best_fitness}\n"
+            f"Distancia total percorrida: {distance}\n"
+            f"Desvio padrão: {standard_deviation}\n"
+            f"Total time elapsed: {int(hours):02}:{int(minutes):02}:{int(seconds):02}\n")
+    
+   #print(content)
+    
+    with open(file_path, "w") as file:
+        file.write(content)
+    
+    print(f"Resultados salvos em: {file_path}")
 
 def run():
     start_time = time.time()
     F = 0.5
     CR = 0.85
-    max_gen = 40000
+    max_gen = 20000
     pop_size = 100
-    track_size = 200
+    track_size = 70
 
     timestamp = datetime.now().strftime("%H%M %d-%m-%Y")
     best_params, best_fitness, standard_deviation, data = customDifferentialEvolution(lapTime, [[0, 99], [0.278, 22.22]], max_generations=max_gen, F=F, CR=CR, pop_size=pop_size, track_size=track_size)
@@ -142,7 +172,8 @@ def run():
     print(f"Distancia total percorrida: {distance}")
     print(f"Desvio padrão: {standard_deviation}")
     print(f"Total time elapsed: {int(hours):02}:{int(minutes):02}:{int(seconds):02}")
-
+    time_ = hours,minutes,seconds
+    save_results(best_params, best_fitness, distance, standard_deviation, max_gen, pop_size,time_,timestamp)
 
     generations = [i + 1 for i in range(len(data[0]))]
     plt.figure(figsize=(18, 10))
@@ -153,7 +184,7 @@ def run():
     plt.plot(generations, data[0])
     plt.xlabel("Geração")
     plt.ylabel("Melhor tempo de volta")
-    # plt.ylim(0 , 2500)
+    plt.ylim(0 , 2500)
     # plt.xlim(0, max_gen)
 
     plt.subplot(4, 1, 2)
@@ -163,8 +194,8 @@ def run():
     plt.ylim(0, 100)
     # plt.xlim(0, max_gen)
     fileName = f"{timestamp} pop_size={pop_size} max_gen={max_gen} F={F} CR={CR}"
-
+    
     plt.savefig(f"charts_pen10/{fileName} charts.png")  # Salvar antes de exibir
     TRACK.plotar_tracado_na_pista(f"charts_pen10/{fileName} tracado.png", best_params[0], track_size)
-    #plt.show()
+       
 run()

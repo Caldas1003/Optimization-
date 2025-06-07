@@ -2,6 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 from scipy.interpolate import CubicSpline
 
 class PistaComAtrito:
@@ -195,6 +196,50 @@ class PistaComAtrito:
         ax.legend()
         
         plt.savefig("parcial")
+
+    def plotar_tracado_na_pista_com_velocidade(self, saveAs: str, waypoints: list, speed_profile: list, track_size=200):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        
+        X_esq, Y_esq, Z_esq = zip(*self.esquerda)
+        X_dir, Y_dir, Z_dir = zip(*self.direita)
+        tracado_X, tracado_Y, tracado_Z = [], [], []
+
+        tracado_2D = []
+
+        for i, value in enumerate(waypoints):
+            waypoint = self.CHECKPOINTS[i][value] # array de 3 posições (x, y, z)
+            tracado_X.append(waypoint[0])
+            tracado_Y.append(waypoint[1])
+            tracado_Z.append(waypoint[2])
+
+            tracado_2D.append([waypoint[0], waypoint[1]])
+
+        tracado_2D = np.array(tracado_2D)
+        speed_profile = np.array(speed_profile)
+
+        segments = np.concatenate([tracado_2D[:-1, None], tracado_2D[1:, None]], axis=1)
+        lc = LineCollection(segments, cmap='viridis', norm=plt.Normalize(speed_profile.min(), speed_profile.max()))
+        lc.set_array(speed_profile[:-1])
+        lc.set_linewidth(0.8)
+
+        ax.plot(X_esq[:track_size], Y_esq[:track_size], color='red', label="Borda Esquerda", linestyle='--', linewidth=0.5)
+        ax.plot(X_dir[:track_size], Y_dir[:track_size], color='red', label="Borda Direita", linestyle='--', linewidth=0.5)
+        
+        # for i in range(len(X_esq)):
+        #     ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], [Z_esq[i], Z_dir[i]], color='gray')
+        
+        ax.set_xlabel('X (metros)')
+        ax.set_ylabel('Y (metros)')
+        ax.add_collection(lc)
+        plt.colorbar(lc, ax=ax, label='Gradient values')
+        # ax.set_zlabel('Z (altitude metros)')
+        ax.set_title('Exibição do traçado na pista')
+        ax.grid(True)
+        ax.legend()
+        
+        plt.savefig(saveAs)
+        fig.clear()
 
 # Definir coordenadas e elevacoes
 gps_coords = [

@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import time
 import os
+import warnings
+
 from datetime import datetime
 
 from PistaComAtrito import TRACK
@@ -45,7 +47,6 @@ def get_turn_radius(P1, P2, P3):
 
     return (p2_p3_len * p1_p3_len * p1_p2_len) / (4 * area)
 
-
 def total_distance(waypoints: list) -> float:
     total_distance = 0
 
@@ -60,22 +61,35 @@ def total_distance(waypoints: list) -> float:
 
     return total_distance
 
+def get_stretch_distance(P1, P2):
+    '''
+    Calculate the distance between two points
 
-def lapTime(waypoints: list, speeds: list) -> tuple:
+    P2 is the point that the car is going to,
+    P1 is the point that the car is coming from
+    '''
+    stretch_distance = np.linalg.norm(P2 - P1)
+    
+    return np.abs(stretch_distance)
+
+def acceleration_available(speed: float) -> float:
+    g = 9.8 # gravity
+    return 1.5*g if speed < 15.28 else ((-1.5*g*(speed - 15.28)/6.94) + 1.5*g) # 15.28 m/s = 55 kph
+
+def generate_speed_profile(waypoints:list, max_speed: float) -> list:
+    speed_profile = []
     number_of_points = len(waypoints)
-
-    if number_of_points != len(speeds):
-        raise ValueError("Number of speeds must be equal to number of waypoints")
+    max_speed = np.float64(max_speed)
 
     g = 9.8  # gravity (9.8 m/s²)
-    allowed_centrifugal_force = 1.5 * g
-    total_time = 0
+    max_centrifugal_force = 1.5 * g
+    max_braking = - 1.5 * g
 
+    # first run
     for i in range(number_of_points):
-        if i == number_of_points - 1:
-            break  # the last and first point are the same, so if we reached the checkpoint 199, we are done
-
-        available_percentage = 1
+        if i == 0 or i == number_of_points - 1:
+            speed_profile.append(max_speed)
+            continue
 
         previous = i - 1
         current = i
@@ -84,71 +98,145 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
         previous_point = TRACK.CHECKPOINTS[previous][waypoints[previous]]
         current_point = TRACK.CHECKPOINTS[current][waypoints[current]]
         following_point = TRACK.CHECKPOINTS[following][waypoints[following]]
-
-        current_speed = speeds[current]
-        following_speed = speeds[following]
-
+        
         turn_radius = get_turn_radius(previous_point, current_point, following_point)
+        # print(f"prev: {waypoints[previous]}")
+        # print(f"curr: {waypoints[current]}")
+        # print(f"follw: {waypoints[following]}")
+        # print(f"radius: {turn_radius}")
 
         if turn_radius > 0:
-            centrifugal_force = (current_speed**2) / turn_radius
-            if centrifugal_force > allowed_centrifugal_force:
-                total_time += (
-                    (centrifugal_force / allowed_centrifugal_force) ** 2
-                ) * 10
-                continue
-
-            available_percentage -= centrifugal_force / allowed_centrifugal_force
-
-        gained_speed = following_speed > current_speed
-        maximum_allowed_acceleration = 0
-        if gained_speed:
-            maximum_engine_acceleration = (
-                0.9 * g
-                if current_speed < 15.28
-                else (272195 / 66227) * current_speed
-                - (12250 / 66277) * (current_speed**2)
-            )  # 15.28 m/s = 55 kph
-            maximum_allowed_acceleration = (
-                maximum_engine_acceleration * available_percentage
-            )
+            max_turn_speed = np.sqrt(max_centrifugal_force * turn_radius)
+            choosen_speed = max_turn_speed if max_turn_speed < max_speed else max_speed
+            speed_profile.append(choosen_speed)
         else:
-            maximum_braking_power = 1.5 * g
-            maximum_allowed_acceleration = maximum_braking_power * available_percentage
-
-        stretch_distance = np.linalg.norm(following_point - current_point)
-
-        necessary_acceleration = np.abs(
-            (following_speed**2 - current_speed**2) / (2 * stretch_distance)
-        )
-
-        if necessary_acceleration > maximum_allowed_acceleration:
-            total_time += (
-                ((necessary_acceleration / maximum_allowed_acceleration) ** 2) * 10
-                if maximum_allowed_acceleration > 0
-                else 10
-            )
+            speed_profile.append(max_speed)
+            
+    
+    # second run
+    for i in range(number_of_points - 1, -1, -1):
+        if i == number_of_points - 1:
             continue
 
-        total_time += (
-            np.abs(following_speed - current_speed) / necessary_acceleration
-            if necessary_acceleration != 0
-            else stretch_distance / current_speed
-        )
+        current = i
+        previous = i + 1
 
+        current_point = TRACK.CHECKPOINTS[current][waypoints[current]]
+        previous_point = TRACK.CHECKPOINTS[previous][waypoints[previous]]
+
+        if speed_profile[current] > speed_profile[previous]:
+            stretch_distance = get_stretch_distance(previous_point, current_point)
+            # print(f"stretch_distance: {stretch_distance}")
+            # print(f"max_braking: {max_braking}")
+            # print(f"speed_profile[previous]: {speed_profile[previous]}")
+            # print(f"speed_profile[current]: {speed_profile[current]}")
+            speed = np.sqrt(speed_profile[previous]**2 - 2*stretch_distance*max_braking)
+            if speed < 0:
+                print("NEGATIVE SPEED")
+            speed_profile[current] = speed if speed < max_speed else max_speed
+
+    # third run
+    for i in range(number_of_points):
+        if i == 0:
+            continue
+
+        current = i
+        previous = i - 1
+
+        current_point = TRACK.CHECKPOINTS[current][waypoints[current]]
+        previous_point = TRACK.CHECKPOINTS[previous][waypoints[previous]]
+
+        if speed_profile[current] > speed_profile[previous]:
+            stretch_distance = get_stretch_distance(previous_point, current_point)
+            # print(f"stretch_distance: {stretch_distance}")
+            # print(f"max_braking: {max_braking}")
+            # print(f"speed_profile[previous]: {speed_profile[previous]}")
+            # print(f"speed_profile[current]: {speed_profile[current]}")
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                acc = acceleration_available(speed_profile[previous])
+
+                if acc > 1.5*9.8:
+                    print(f"acc: {acc}")
+                    print(f"speed prev: {speed_profile[previous]}")
+                    print(f"speed curr: {speed_profile[current]}")
+
+                speed = np.sqrt(speed_profile[previous]**2 + 2*stretch_distance*acc)
+                # print(f"acc: {acc}")
+                # print(f"dist: {stretch_distance}")
+                # print(f"speed_prev: {speed_profile[previous]}")
+                # print(f"speed: {speed}")
+
+                if w:
+                    print(f"Warning: {w[0].message}")
+                    print(f"stretch_distance: {stretch_distance}")
+                    print(f"acc: {acc}")
+                    print(f"speed_profile[previous]: {speed_profile[previous]}")
+                    print(f"speed_profile[current]: {speed_profile[current]}")
+                
+                speed_profile[current] = speed if speed < max_speed else max_speed
+
+    return speed_profile
+
+def calculate_time(waypoints: list, speed_profile: list) -> float:
+    if len(waypoints) != len(speed_profile):
+        raise ValueError("Number of waypoints and speeds must be equal")
+    
+    number_of_points = len(waypoints)
+    total_time = 0
+
+    for i in range(number_of_points):
+        if i == 0 or i == number_of_points - 1:
+            continue
+
+        current = i
+        following = i + 1
+
+        current_point_index = waypoints[current]
+        following_point_index = waypoints[following]
+        current_point = TRACK.CHECKPOINTS[current][current_point_index]
+        following_point = TRACK.CHECKPOINTS[following][following_point_index]
+        current_speed = speed_profile[current]
+        following_speed = speed_profile[following]
+
+        stretch_distance = get_stretch_distance(current_point, following_point)
+        acceleration = (following_speed**2 - current_speed**2) / (2*stretch_distance)
+
+        stretch_time = (following_speed - current_speed) / acceleration if acceleration != 0 else stretch_distance / current_speed
+        
+        # print(f"acc: {acceleration}")
+        # print(f"dist: {stretch_distance}")
+        # print(f"curr speed: {current_speed}")
+        # print(f"folw speed: {following_speed}")
+        # print(f"stretch_time: {stretch_time}")
+
+        total_time += stretch_time
+        # print(f"total: {total_time}")
+
+        if stretch_time < 0:
+            print(following_speed)
+    
     return total_time
 
+def lapTime(waypoints: list, max_speed: float) -> list:
+    speed_profile = generate_speed_profile(waypoints, max_speed)
+
+    return [calculate_time(waypoints, speed_profile), speed_profile]
+
+def generations_to_plot(amount: int, step: int) -> list:
+    return np.arange(1, amount + 1) * step
 
 def run():
     start_time = time.time()
     F = 0.5
     CR = 0.85
     max_gen = 50000
-    pop_size = 4000
+    pop_size = 1400
     track_size = 70
+    gens_to_plot = generations_to_plot(100, 500)
 
-    timestamp = datetime.now().strftime("%H%M %d-%m-%Y")
-    folder = f"simulação pen10 - {timestamp}"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H%M")
+    folder = f"{timestamp} - speed profile gen"
     os.makedirs(folder, exist_ok=True)
 
     best_params, best_fitness, standard_deviation, data = customDifferentialEvolution(
@@ -159,7 +247,7 @@ def run():
         CR=CR,
         pop_size=pop_size,
         track_size=track_size,
-        gensToPlot=np.arange(1, 51) * 1000,
+        gensToPlot=gens_to_plot,
         folder=folder,
     )
 
@@ -200,4 +288,5 @@ def run():
     # TRACK.plotar_tracado_na_pista(f"somulação {timstamp}/{fileName} tracado.png", best_params[0], track_size)
 
 
-run()
+if __name__ ==   '__main__':
+    run()

@@ -3,10 +3,9 @@ import os
 import matplotlib.pyplot as plt
 import time
 from datetime import datetime
-
 from Pista import TRACK
+import warnings
 from diferential_evolution import customDifferentialEvolution
-
 
 def calculate_angle(P1, P2, P3):
     vector_A = np.array(P2) - np.array(P1)
@@ -20,7 +19,6 @@ def calculate_angle(P1, P2, P3):
     
     return np.degrees(angle_in_rad)
 
-
 def get_turn_radius(P1, P2, P3):
     p2_p3_len = np.linalg.norm(P3 - P2)
     p1_p3_len = np.linalg.norm(P3 - P1)
@@ -28,18 +26,39 @@ def get_turn_radius(P1, P2, P3):
 
     stretch_1 = P2 - P1
     stretch_2 = P3 - P2
-    vector_product = (
-        stretch_1[1] * stretch_2[2] - stretch_1[2] * stretch_2[1],
-        stretch_1[2] * stretch_2[0] - stretch_1[0] * stretch_2[2],
-        stretch_1[0] * stretch_2[1] - stretch_1[1] * stretch_2[0]
-    )
-    area = np.sqrt(vector_product[0]**2 + vector_product[1]**2 + vector_product[2]**2) / 2
-
+    
+    # Produto vetorial para 2D (escalar)
+    vector_product = stretch_1[0] * stretch_2[1] - stretch_1[1] * stretch_2[0]
+    
+    # Área do triângulo
+    area = abs(vector_product) / 2
+    
     if area == 0:
-        return 0
-     
+        return np.inf  # Retorna infinito para trechos retos
+    
     return (p2_p3_len * p1_p3_len * p1_p2_len) / (4 * area)
 
+def compute_ideal_distance(track):
+    ideal_distance = 0
+    for c1, c2 in zip(TRACK.CHECKPOINTS[:-1], TRACK.CHECKPOINTS[1:]):
+        min_dist = np.min([np.linalg.norm(p1 - p2) for p1 in c1 for p2 in c2])
+        ideal_distance += min_dist
+    return ideal_distance
+
+def get_stretch_distance(P1, P2):
+    '''
+    Calculate the distance between two points
+
+    P2 is the point that the car is going to,
+    P1 is the point that the car is coming from
+    '''
+    stretch_distance = np.linalg.norm(P2 - P1)
+    
+    return np.abs(stretch_distance)
+
+def acceleration_available(speed: float) -> float:
+    g = 9.8 # gravity
+    return 1.5*g if speed < 15.28 else ((-1.5*g*(speed - 15.28)/6.94) + 1.5*g) # 15.28 m/s = 55 kph
 
 def total_distance(waypoints: list) -> float:
     total_distance = 0
@@ -54,23 +73,151 @@ def total_distance(waypoints: list) -> float:
 
     return total_distance
 
-def lapTime(waypoints: list, speeds: list) -> tuple:
+def compute_angle_penalty(waypoints, weight=1.0, min_angle_threshold=60, critical_angle_threshold=30):
+    """
+    Penaliza curvas com ângulos menores que o threshold (em graus).
+    Quanto menor o ângulo, maior a penalização.
+    Adiciona uma penalidade extra para ângulos criticamente pequenos.
+    """
+    penalty = 0.0
+    for i in range(1, len(waypoints) - 1):
+        P1 = TRACK.CHECKPOINTS[i - 1][waypoints[i - 1]]
+        P2 = TRACK.CHECKPOINTS[i][waypoints[i]]
+        P3 = TRACK.CHECKPOINTS[i + 1][waypoints[i + 1]]
+
+        angle = calculate_angle(P1, P2, P3)
+
+        if angle < min_angle_threshold:
+            penalty += weight * (min_angle_threshold - angle)
+        
+        # Penalidade extra para ângulos muito pequenos, que são menos realistas
+        if angle < critical_angle_threshold:
+            penalty += 5 * weight * (critical_angle_threshold - angle) 
+
+    return penalty
+
+def compute_radius_penalty(waypoints, min_radius=15.0, weight=1.0): 
+    """
+    Penaliza curvas com raio menor que o mínimo desejado.
+    """
+    penalty = 0.0
+    for i in range(1, len(waypoints) - 1):
+        P1 = TRACK.CHECKPOINTS[i - 1][waypoints[i - 1]]
+        P2 = TRACK.CHECKPOINTS[i][waypoints[i]]
+        P3 = TRACK.CHECKPOINTS[i + 1][waypoints[i + 1]]
+
+        radius = get_turn_radius(P1, P2, P3)
+
+        if 0 < radius < min_radius:
+            penalty += weight * (min_radius - radius)
+
+    return penalty
+
+def compute_smoothness_penalty(waypoints):
+    penalty = 0.0
+    n = len(waypoints)
+    
+    for i in range(1, n - 1):
+        # Pontos adjacentes (3 pontos)
+        p0 = TRACK.CHECKPOINTS[i - 1][waypoints[i - 1]]
+        p1 = TRACK.CHECKPOINTS[i][waypoints[i]]
+        p2 = TRACK.CHECKPOINTS[i + 1][waypoints[i + 1]]
+        
+        # Cálculo básico de curvatura (3 pontos)
+        mid_point = (p0 + p2) / 2
+        curvature_3pt = np.linalg.norm(p1 - mid_point)
+        
+        # Cálculo estendido com 5 pontos (quando aplicável)
+        if i >= 2 and i < n - 2:
+            p_prev = TRACK.CHECKPOINTS[i - 2][waypoints[i - 2]]  # Ponto anterior distante
+            p_next = TRACK.CHECKPOINTS[i + 2][waypoints[i + 2]]  # Próximo ponto distante
+            
+            # Curvatura usando 5 pontos (ajuste quadrático implícito)
+            curvature_5pt = np.linalg.norm(
+                (p_prev + 4*p0 + 6*p1 + 4*p2 + p_next) / 16 - p1
+            )
+            # Combina as duas medidas
+            penalty += 0.6 * curvature_3pt + 0.4 * curvature_5pt
+        else:
+            penalty += curvature_3pt
+    
+    return penalty
+
+def compute_border_proximity_penalty(waypoints, weight=10.0, safe_margin_indices=2):
+    """
+    Penaliza waypoints que estão muito próximos das bordas da pista.
+    
+    waypoints: Lista de índices de pontos selecionados em cada checkpoint.
+    weight: Fator de peso para a penalidade.
+    safe_margin_indices: Número de índices "seguros" a partir de cada borda.
+                         Ex: se 2, os pontos com índices 0, 1 (borda interna)
+                         e (max_idx - 1), max_idx (borda externa) serão penalizados.
+    """
+    penalty = 0.0
+    
+    for i, wp_idx in enumerate(waypoints):
+
+        max_idx_in_checkpoint = len(TRACK.CHECKPOINTS[i]) - 1 
+        
+        # Penalidade para pontos próximos à borda interna (índices baixos)
+        if wp_idx < safe_margin_indices:
+            # A penalidade aumenta quanto mais próximo da borda
+            penalty += weight * (safe_margin_indices - wp_idx) * 2 # Multiplicar por 2 para penalizar mais fortemente os pontos mais próximos da borda
+        
+        # Penalidade para pontos próximos à borda externa (índices altos)
+        elif wp_idx > (max_idx_in_checkpoint - safe_margin_indices):
+            # A penalidade aumenta quanto mais próximo da borda
+            penalty += weight * (wp_idx - (max_idx_in_checkpoint - safe_margin_indices)) * 2
+            
+    return penalty
+
+def compute_angle_change_penalty(waypoints, weight=1, max_angle_change=15.0):
+    """
+    Penaliza mudanças abruptas na angulação da curva.
+    Um valor alto indica um zigue-zague.
+    max_angle_change: a mudança máxima permitida em graus entre curvas adjacentes sem penalidade.
+    """
+    penalty = 0.0
+    n = len(waypoints)
+
+    # Precisamos de pelo menos 4 pontos para ter 2 ângulos de curva consecutivos
+    if n < 4:
+        return 0.0
+
+    for i in range(1, n - 2): # Vai até n-3 para pegar P1, P2, P3 e depois P2, P3, P4
+        # Primeiro ângulo
+        P1_a = TRACK.CHECKPOINTS[i - 1][waypoints[i - 1]]
+        P2_a = TRACK.CHECKPOINTS[i][waypoints[i]]
+        P3_a = TRACK.CHECKPOINTS[i + 1][waypoints[i + 1]]
+        angle_a = calculate_angle(P1_a, P2_a, P3_a)
+
+        # Segundo ângulo (usando o P3_a como P1 do próximo ângulo)
+        P1_b = P2_a # O ponto do meio do primeiro ângulo se torna o primeiro ponto do segundo
+        P2_b = P3_a # O último ponto do primeiro ângulo se torna o ponto do meio do segundo
+        P3_b = TRACK.CHECKPOINTS[i + 2][waypoints[i + 2]] # Ponto seguinte
+        angle_b = calculate_angle(P1_b, P2_b, P3_b)
+
+        angle_change = abs(angle_b - angle_a)
+
+        if angle_change > max_angle_change:
+            penalty += weight * (angle_change - max_angle_change)
+
+    return penalty
+
+def generate_speed_profile(waypoints:list, max_speed: float) -> list:
+    speed_profile = []
     number_of_points = len(waypoints)
-    
-    if number_of_points != len(speeds):
-        raise ValueError("Number of speeds must be equal to number of waypoints")
-    
-    g = 9.8 # gravity (9.8 m/s²)
-    allowed_centrifugal_force = 1.5 * g
-    total_time = 0
-    lambda1=1
-    lambda2=1
+    max_speed = np.float64(max_speed)
 
+    g = 9.8  # gravity (9.8 m/s²)
+    max_centrifugal_force = 1.5 * g
+    max_braking = - 1.5 * g
+
+    # first run
     for i in range(number_of_points):
-        if i == number_of_points - 1:
-            break # the last and first point are the same, so if we reached the checkpoint 199, we are done
-
-        available_percentage = 1
+        if i == 0 or i == number_of_points - 1:
+            speed_profile.append(max_speed)
+            continue
 
         previous = i - 1
         current = i
@@ -79,66 +226,149 @@ def lapTime(waypoints: list, speeds: list) -> tuple:
         previous_point = TRACK.CHECKPOINTS[previous][waypoints[previous]]
         current_point = TRACK.CHECKPOINTS[current][waypoints[current]]
         following_point = TRACK.CHECKPOINTS[following][waypoints[following]]
-
-        current_speed = speeds[current]
-        following_speed = speeds[following]
-
-        # 🛑 Penalidade se não escolher o waypoint mais próximo
-        next_checkpoint_candidates = TRACK.CHECKPOINTS[following]
-        distances = [np.linalg.norm(candidate - current_point) for candidate in next_checkpoint_candidates]
-        closest_index = int(np.argmin(distances))
-
-        if waypoints[following] != closest_index:
-            penalidade_distancia_extra = distances[waypoints[following]] - distances[closest_index]
-            total_time +=abs( (penalidade_distancia_extra/distances[closest_index])**2 * 100)  # ajuste o fator conforme necessário
-
+        
         turn_radius = get_turn_radius(previous_point, current_point, following_point)
-     
-        #if turn_radius > 120:  # trecho praticamente reto
-        #    if current_speed < 10:  # abaixo de 36 km/h
-        #        total_time += abs(((10 - current_speed)/current_speed) * 100)
+        # print(f"prev: {waypoints[previous]}")
+        # print(f"curr: {waypoints[current]}")
+        # print(f"follw: {waypoints[following]}")
+        # print(f"radius: {turn_radius}")
 
         if turn_radius > 0:
-            centrifugal_force = (current_speed**2) / turn_radius
-            if centrifugal_force > allowed_centrifugal_force:
-                total_time += abs((centrifugal_force/allowed_centrifugal_force))*lambda1*100
-                #lambda1 += 1
-
-                continue
-
-            available_percentage -= (centrifugal_force / allowed_centrifugal_force)
-
-        gained_speed = following_speed > current_speed
-        maximum_allowed_acceleration = 0
-        if gained_speed:
-            maximum_engine_acceleration = 0.9*g if current_speed < 15.28 else (272195/66227)*current_speed - (12250/66277)*(current_speed**2) # 15.28 m/s = 55 kph
-            maximum_allowed_acceleration = maximum_engine_acceleration * available_percentage
+            max_turn_speed = np.sqrt(max_centrifugal_force * turn_radius)
+            choosen_speed = max_turn_speed if max_turn_speed < max_speed else max_speed
+            speed_profile.append(choosen_speed)
         else:
-            maximum_braking_power = 1.5 * g
-            maximum_allowed_acceleration = maximum_braking_power * available_percentage
-
-        stretch_distance = np.linalg.norm(following_point - current_point)
-        
-        necessary_acceleration = ((following_speed*2 - current_speed*2) / (2*stretch_distance))
+            speed_profile.append(max_speed)
+            
     
-        if necessary_acceleration > maximum_allowed_acceleration:
-            total_time += abs((necessary_acceleration/maximum_allowed_acceleration))*lambda2*100
-            #lambda2 += 1
-
+    # second run
+    for i in range(number_of_points - 1, -1, -1):
+        if i == number_of_points - 1:
             continue
 
-        total_time += (following_speed - current_speed) / necessary_acceleration if necessary_acceleration != 0 else stretch_distance / current_speed
+        current = i
+        previous = i + 1
 
-    return total_time
+        current_point = TRACK.CHECKPOINTS[current][waypoints[current]]
+        previous_point = TRACK.CHECKPOINTS[previous][waypoints[previous]]
 
-def save_results(best_params, best_fitness, distance, standard_deviation, max_gen, pop_size,time,time_stamp):
-    folder_path = "resultados_da_volta"
-    os.makedirs(folder_path, exist_ok=True)
+        if speed_profile[current] > speed_profile[previous]:
+            stretch_distance = get_stretch_distance(previous_point, current_point)
+            # print(f"stretch_distance: {stretch_distance}")
+            # print(f"max_braking: {max_braking}")
+            # print(f"speed_profile[previous]: {speed_profile[previous]}")
+            # print(f"speed_profile[current]: {speed_profile[current]}")
+            speed = np.sqrt(speed_profile[previous]**2 - 2*stretch_distance*max_braking)
+            if speed < 0:
+                print("NEGATIVE SPEED")
+            speed_profile[current] = speed if speed < max_speed else max_speed
+
+    # third run
+    for i in range(number_of_points):
+        if i == 0:
+            continue
+
+        current = i
+        previous = i - 1
+
+        current_point = TRACK.CHECKPOINTS[current][waypoints[current]]
+        previous_point = TRACK.CHECKPOINTS[previous][waypoints[previous]]
+
+        if speed_profile[current] > speed_profile[previous]:
+            stretch_distance = get_stretch_distance(previous_point, current_point)
+            # print(f"stretch_distance: {stretch_distance}")
+            # print(f"max_braking: {max_braking}")
+            # print(f"speed_profile[previous]: {speed_profile[previous]}")
+            # print(f"speed_profile[current]: {speed_profile[current]}")
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                acc = acceleration_available(speed_profile[previous])
+
+                if acc > 1.5*9.8:
+                    print(f"acc: {acc}")
+                    print(f"speed prev: {speed_profile[previous]}")
+                    print(f"speed curr: {speed_profile[current]}")
+
+                speed = np.sqrt(speed_profile[previous]**2 + 2*stretch_distance*acc)
+                # print(f"acc: {acc}")
+                # print(f"dist: {stretch_distance}")
+                # print(f"speed_prev: {speed_profile[previous]}")
+                # print(f"speed: {speed}")
+
+                if w:
+                    print(f"Warning: {w[0].message}")
+                    print(f"stretch_distance: {stretch_distance}")
+                    print(f"acc: {acc}")
+                    print(f"speed_profile[previous]: {speed_profile[previous]}")
+                    print(f"speed_profile[current]: {speed_profile[current]}")
+                
+                speed_profile[current] = speed if speed < max_speed else max_speed
+
+    return speed_profile
+
+def calculate_time(waypoints: list, speed_profile: list, use_penalties=True) -> float:
+    if len(waypoints) != len(speed_profile):
+        raise ValueError("Number of waypoints and speeds must be equal")
+    
+    number_of_points = len(waypoints)
+    total_time = 0
+    penalty = 0
+    for i in range(number_of_points):
+        if i == 0 or i == number_of_points - 1:
+            continue
+
+        current = i
+        following = i + 1
+
+        current_point_index = waypoints[current]
+        following_point_index = waypoints[following]
+        current_point = TRACK.CHECKPOINTS[current][current_point_index]
+        following_point = TRACK.CHECKPOINTS[following][following_point_index]
+        current_speed = speed_profile[current]
+        following_speed = speed_profile[following]
+
+        stretch_distance = get_stretch_distance(current_point, following_point)
+        acceleration = (following_speed**2 - current_speed**2) / (2*stretch_distance)
+
+        stretch_time = (following_speed - current_speed) / acceleration if acceleration != 0 else stretch_distance / current_speed
+        
+        # print(f"acc: {acceleration}")
+        # print(f"dist: {stretch_distance}")
+        # print(f"curr speed: {current_speed}")
+        # print(f"folw speed: {following_speed}")
+        # print(f"stretch_time: {stretch_time}")
+
+        total_time += stretch_time
+        # print(f"total: {total_time}")
+
+        if stretch_time < 0:
+            print(following_speed)
+
+    if not use_penalties:
+        return total_time
+
+    # Penalidades opcionais (suavidade leve)
+    penalty += 0.08 * compute_smoothness_penalty(waypoints)
+    #penalty += 0.05 * compute_angle_penalty(waypoints)
+    #penalty += 0.10 * compute_angle_change_penalty(waypoints)
+    penalty += 0.05 * compute_radius_penalty(waypoints)
+    penalty += 0.05 * compute_border_proximity_penalty(waypoints)
+    return total_time + penalty 
+
+def lapTime(waypoints: list, max_speed: float) -> list:
+    speed_profile = generate_speed_profile(waypoints, max_speed)
+    
+
+    return [calculate_time(waypoints, speed_profile), speed_profile]
+
+def save_results(best_params, best_fitness, distance, standard_deviation, max_gen, pop_size,F,CR,time,time_stamp,folder_path):
+    folder_path = folder_path
     hours,minutes,seconds = time
     filename = f"{time_stamp}_gen={max_gen}_pop={pop_size}.txt"
     file_path = os.path.join(folder_path, filename)
     
-    content = (f"Melhores parâmetros encontrados: {best_params}\n"
+    content = (f"F = {F} , CR = {CR}\n"
+            f"Melhores parâmetros encontrados: {best_params}\n"
             f"Menor tempo total encontrada: {best_fitness}\n"
             f"Distancia total percorrida: {distance}\n"
             f"Desvio padrão: {standard_deviation}\n"
@@ -153,14 +383,19 @@ def save_results(best_params, best_fitness, distance, standard_deviation, max_ge
 
 def run():
     start_time = time.time()
-    F = 0.5
-    CR = 0.85
-    max_gen = 20000
+    F = 0.8
+    CR = 0.6
+    max_gen = 2000
     pop_size = 100
-    track_size = 70
+    track_size = 200
 
-    timestamp = datetime.now().strftime("%H%M %d-%m-%Y")
-    best_params, best_fitness, standard_deviation, data = customDifferentialEvolution(lapTime, [[0, 99], [0.278, 22.22]], max_generations=max_gen, F=F, CR=CR, pop_size=pop_size, track_size=track_size)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H%M")
+    results_dir = f"Resultados_Otimizacao_GLOBAL__{timestamp}_{max_gen}GEN_{pop_size}POP"
+    os.makedirs(results_dir, exist_ok=True)
+
+    best_params, best_fitness, standard_deviation, data = customDifferentialEvolution(lapTime, [[0, 49], [0.278, 22.22]], 
+                                                                                      max_generations=max_gen, F=F, CR=CR, pop_size=pop_size, 
+                                                                                      track_size=track_size,folder=results_dir,parallel=True,n_jobs=4)
     distance=total_distance(best_params[0])
 
     time_elapsed = time.time() - start_time
@@ -173,7 +408,7 @@ def run():
     print(f"Desvio padrão: {standard_deviation}")
     print(f"Total time elapsed: {int(hours):02}:{int(minutes):02}:{int(seconds):02}")
     time_ = hours,minutes,seconds
-    save_results(best_params, best_fitness, distance, standard_deviation, max_gen, pop_size,time_,timestamp)
+    save_results(best_params, best_fitness, distance, standard_deviation, max_gen, pop_size,F,CR,time_,timestamp,results_dir)
 
     generations = [i + 1 for i in range(len(data[0]))]
     plt.figure(figsize=(18, 10))
@@ -184,18 +419,19 @@ def run():
     plt.plot(generations, data[0])
     plt.xlabel("Geração")
     plt.ylabel("Melhor tempo de volta")
-    plt.ylim(0 , 2500)
     # plt.xlim(0, max_gen)
 
     plt.subplot(4, 1, 2)
     plt.plot(generations, data[1])
     plt.xlabel("Geração")
     plt.ylabel("Desvio Padrão")
-    plt.ylim(0, 100)
     # plt.xlim(0, max_gen)
     fileName = f"{timestamp} pop_size={pop_size} max_gen={max_gen} F={F} CR={CR}"
     
-    plt.savefig(f"charts_pen10/{fileName} charts.png")  # Salvar antes de exibir
-    TRACK.plotar_tracado_na_pista(f"charts_pen10/{fileName} tracado.png", best_params[0], track_size)
+    chart_path = os.path.join(results_dir, f"{fileName} charts.png")
+    track_path = os.path.join(results_dir, f"{fileName} tracado.png")
+
+    plt.savefig(chart_path)
+    TRACK.plotar_tracado_na_pista(track_path, best_params[0], track_size)
        
 run()

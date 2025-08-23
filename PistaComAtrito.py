@@ -144,30 +144,34 @@ class PistaComAtrito:
 
         return gates
 
-    def plotar_tracado_na_pista(self, saveAs, waypoints, track_size=200):
+    def plotar_tracado_na_pista(self, saveAs, path, track_size=200, checkpoints=False):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         
         X_esq, Y_esq, Z_esq = zip(*self.esquerda)
         X_dir, Y_dir, Z_dir = zip(*self.direita)
-        tracado_X, tracado_Y, tracado_Z = [], [], []
+        tracado_X, tracado_Y = [], []
 
-        for i, value in enumerate(waypoints):
-            waypoint = self.CHECKPOINTS[i][value] # array de 3 posições (x, y, z)
-            tracado_X.append(waypoint[0])
-            tracado_Y.append(waypoint[1])
-            tracado_Z.append(waypoint[2])
+        for point in path:
+            tracado_X.append(point[0])
+            tracado_Y.append(point[1])
 
         ax.plot(tracado_X, tracado_Y, color='blue', label="Traçado", linewidth=0.5)
         ax.plot(X_esq[:track_size], Y_esq[:track_size], color='red', label="Borda Esquerda", linestyle='--', linewidth=0.5)
         ax.plot(X_dir[:track_size], Y_dir[:track_size], color='red', label="Borda Direita", linestyle='--', linewidth=0.5)
         
-        # for i in range(len(X_esq)):
-        #     ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], [Z_esq[i], Z_dir[i]], color='gray')
+        if checkpoints:
+            for i in range(track_size):
+                ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], [Z_esq[i], Z_dir[i]], color='gray')
         
+            for i in range(len(path)):
+                if i % 10 == 0:
+                    ax.plot(tracado_X[i], tracado_Y[i], 'o', color='red')
         ax.set_xlabel('X (metros)')
         ax.set_ylabel('Y (metros)')
         # ax.set_zlabel('Z (altitude metros)')
+        # ax.set_xlim(-90, 10)
+        # ax.set_ylim(-250, 10)
         ax.set_title('Exibição do traçado na pista')
         ax.grid(True)
         ax.legend()
@@ -197,34 +201,36 @@ class PistaComAtrito:
         
         plt.savefig("parcial")
 
-    def plotar_tracado_na_pista_com_velocidade(self, saveAs: str, waypoints: list, speed_profile: list, track_size=200):
+    def plotar_tracado_na_pista_com_velocidade(self, saveAs: str, path: list, speed_profile: list, track_start=0, track_end=200, checkpoints=False):
         fig = plt.figure()
         ax = fig.add_subplot(111)
         
         X_esq, Y_esq, Z_esq = zip(*self.esquerda)
         X_dir, Y_dir, Z_dir = zip(*self.direita)
-        tracado_X, tracado_Y, tracado_Z = [], [], []
 
         tracado_2D = []
 
-        for i, value in enumerate(waypoints):
-            waypoint = self.CHECKPOINTS[i][value] # array de 3 posições (x, y, z)
-            tracado_X.append(waypoint[0])
-            tracado_Y.append(waypoint[1])
-            tracado_Z.append(waypoint[2])
-
-            tracado_2D.append([waypoint[0], waypoint[1]])
-
+        for point in path:
+            tracado_2D.append([point[0], point[1]])
+                
         tracado_2D = np.array(tracado_2D)
         speed_profile = np.array(speed_profile)
+
+        if checkpoints:
+            for i in range(track_start, track_end):
+                ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], color='gray')
+        
+            for i in range(len(path)):
+                if i % 10 == 0:
+                    ax.plot(tracado_2D[i][0], tracado_2D[i][1], 'o', color='red')
 
         segments = np.concatenate([tracado_2D[:-1, None], tracado_2D[1:, None]], axis=1)
         lc = LineCollection(segments, cmap='viridis', norm=plt.Normalize(speed_profile.min(), speed_profile.max()))
         lc.set_array(speed_profile[:-1])
         lc.set_linewidth(0.8)
 
-        ax.plot(X_esq[:track_size], Y_esq[:track_size], color='red', label="Borda Esquerda", linestyle='--', linewidth=0.5)
-        ax.plot(X_dir[:track_size], Y_dir[:track_size], color='red', label="Borda Direita", linestyle='--', linewidth=0.5)
+        ax.plot(X_esq[track_start:track_end], Y_esq[track_start:track_end], color='red', label="Borda Esquerda", linestyle='--', linewidth=0.5)
+        ax.plot(X_dir[track_start:track_end], Y_dir[track_start:track_end], color='red', label="Borda Direita", linestyle='--', linewidth=0.5)
         
         # for i in range(len(X_esq)):
         #     ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], [Z_esq[i], Z_dir[i]], color='gray')
@@ -236,6 +242,8 @@ class PistaComAtrito:
         # ax.set_zlabel('Z (altitude metros)')
         ax.set_title('Exibição do traçado na pista')
         ax.grid(True)
+        # ax.set_xlim(-90, 10)
+        # ax.set_ylim(-250, 10)
         ax.legend()
         
         plt.savefig(saveAs)

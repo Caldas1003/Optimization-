@@ -5,22 +5,23 @@ from PistaComAtrito import TRACK
 
 
 def customDifferentialEvolution(
-    func: Callable[[list], float],
+    func: Callable[[list, int, int, float], float],
     bounds: NDArray[np.int_],
     pop_size=400,
     F=0.8,
     CR=0.9,
     max_generations=100,
-    track_size=200,
+    track_start = 0,
+    track_end=200,
     gensToPlot=[100, 200, 300],
     folder="charts"
 ):
-    # middle_of_track = np.ones(200, dtype=int) * 46
-    waypoints_population = np.random.randint(bounds[0][0], bounds[0][1], (pop_size, track_size))
+    waypoints_population = np.random.randint(bounds[0][0], bounds[0][1], (pop_size, track_end - track_start))
+    # middle_of_track = np.ones(track_end - track_start, dtype=int) * 46
     # waypoints_population[pop_size // 2] = middle_of_track  
 
     max_speed = bounds[1][1]
-    results = np.array([func(waypoints_population[i], max_speed) for i in range(pop_size)], dtype=object)
+    results = np.array([func(waypoints_population[i], track_start, track_end, max_speed) for i in range(pop_size)], dtype=object)
     lap_times = [result[0].astype(float) for result in results]
     
     best_results = []
@@ -29,9 +30,9 @@ def customDifferentialEvolution(
     for gen in range(max_generations):
         if gen in gensToPlot:
             best_idx = np.argmin(lap_times)
-            best_waypoints = waypoints_population[best_idx]
-            speed_profile = results[best_idx][1]
-            TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {gen} - teste continuo.png", best_waypoints, speed_profile, track_size)
+            path = results[best_idx][1]
+            speed_profile = results[best_idx][2]
+            TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {gen} - teste continuo.png", path, speed_profile, track_start, track_end)
 
         print(f"Geração {gen + 1}", end="\r")
 
@@ -53,19 +54,20 @@ def customDifferentialEvolution(
 
             waypoints_offspring = generateOffspring(waypoints_trial_vector, waypoints_parent, CR)
 
-            offspring_result, offspring_profile = func(waypoints_offspring, max_speed)
+            offspring_result, offspring_path, offspring_speeds = func(waypoints_offspring, track_start, track_end, max_speed)
             offspring_is_fitter = np.all(offspring_result < lap_times[i])
             if offspring_is_fitter:
                 waypoints_population[i] = waypoints_offspring
                 lap_times[i] = offspring_result
-                results[i][1] = offspring_profile
+                results[i] = [offspring_result, offspring_path, offspring_speeds]
 
     best_idx = np.argmin(lap_times)
     best_waypoints = waypoints_population[best_idx]
     best_fitness = lap_times[best_idx]
-    speed_profile = results[best_idx][1]
+    path = results[best_idx][1]
+    speed_profile = results[best_idx][2]
     standard_deviation = np.std(lap_times)
-    TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {max_generations} - teste continuo.png", best_waypoints, speed_profile, track_size)
+    TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {max_generations} - teste continuo.png", path, speed_profile, track_start, track_end, checkpoints=True)
 
     return (best_waypoints, speed_profile), best_fitness, standard_deviation, (best_results, std_deviations)
 

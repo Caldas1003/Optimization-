@@ -268,6 +268,40 @@ def generate_speed_profile(points:list, max_speed: float) -> list:
 
     return speed_profile
 
+def calculate_angle(P1, P2, P3):
+    """
+    Calculate the angle between three points P1, P2, and P3.
+    The angle calculated is between the extended line of P1P2 with P2P3,
+    that is why there is a 180 degree subtraction, the angle we want to use is
+    the inside angle between the two vectors P1P2 and P2P3.
+    """
+    vector_A = np.array(P2) - np.array(P1)
+    vector_B = np.array(P3) - np.array(P2)
+
+    scalar_product = np.dot(vector_A, vector_B)
+    magnitude_A = np.linalg.norm(vector_A)
+    magnitude_B = np.linalg.norm(vector_B)
+
+    angle_in_rad = np.arccos(scalar_product / (magnitude_A * magnitude_B))
+    if np.degrees(angle_in_rad) > 180:
+        print("Ângulo maior que 180 graus, o que não é esperado.")
+
+    return 180 - np.degrees(angle_in_rad)
+
+def calculate_angle_penalty(P1, P2, P3):
+    """
+    Penaliza curvas com ângulos pequenos.
+    Quanto menor o ângulo, maior a penalização.
+    """
+    angle = calculate_angle(P1, P2, P3)
+    penalty = (5/(90**2))*((180 - angle)**2)
+
+    if penalty < 0:
+        print("Penalidade menor que zero, o que não é esperado.")
+        print(f"Ângulo: {angle}")
+
+    return penalty
+
 def calculate_time(points: list, speed_profile: list) -> float:
     if len(points) != len(speed_profile):
         raise ValueError("Number of points and speeds must be equal")
@@ -278,12 +312,15 @@ def calculate_time(points: list, speed_profile: list) -> float:
     for i in range(number_of_points):
         if i == 0 or i == number_of_points - 1:
             continue
-
+        
+        previous = i - 1
         current = i
         following = i + 1
 
+        previous_point = points[previous]
         current_point = points[current]
         following_point = points[following]
+
         current_speed = speed_profile[current]
         following_speed = speed_profile[following]
 
@@ -291,8 +328,9 @@ def calculate_time(points: list, speed_profile: list) -> float:
         acceleration = (following_speed**2 - current_speed**2) / (2*stretch_distance)
 
         stretch_time = (following_speed - current_speed) / acceleration if acceleration != 0 else stretch_distance / current_speed
+        penalty = calculate_angle_penalty(previous_point, current_point, following_point)
         
-        total_time += stretch_time
+        total_time += stretch_time + penalty
         # print(f"total: {total_time}")
 
         if stretch_time < 0:
@@ -314,11 +352,11 @@ def run():
     start_time = time.time()
     F = 0.5
     CR = 0.85
-    max_gen = 1000
+    max_gen = 100
     pop_size = 1400
     track_start = 0
     track_end = 70
-    gens_to_plot = generations_to_plot(10, 100)
+    gens_to_plot = generations_to_plot(10, 10)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H%M")
     folder = f"{timestamp} - speed profile gen"
@@ -332,7 +370,7 @@ def run():
         CR=CR,
         pop_size=pop_size,
         track_start=track_start,
-				track_end=track_end,
+        track_end=track_end,
         gensToPlot=gens_to_plot,
         folder=folder,
     )

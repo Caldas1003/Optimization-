@@ -10,14 +10,14 @@ import functools
 
 class Chassis:
     def __init__(self, 
-                 Mc=None, Mst=None, Msd=None,                  # Massas
-                 Kte=None, Ktd=None, Kde=None, Kdd=None,       # Rigidez suspensão
-                 Kpte=None, Kptd=None, Kpde=None, Kpdd=None,   # Rigidez pneus
-                 Kf=None, Kt=None,                             # Rigidez do chassi
-                 Cte=None, Ctd=None, Cde=None, Cdd=None,       # Amortecedores suspensão
-                 Cphi=None, Ctheta=None,                       # Amortecedores do chassi
-                 Iflex=None, Itorc=None,                       # Inércias do chassi
-                 W=None, Lt=None, Ld=None):                    # Unidade de comprimento
+                Mc=None, Mst=None, Msd=None,                  # Massas
+                Kte=None, Ktd=None, Kde=None, Kdd=None,       # Rigidez suspensão
+                Kpte=None, Kptd=None, Kpde=None, Kpdd=None,   # Rigidez pneus
+                Kf=None, Kt=None,                             # Rigidez do chassi
+                Cte=None, Ctd=None, Cde=None, Cdd=None,       # Amortecedores suspensão
+                Cphi=None, Ctheta=None,                       # Amortecedores do chassi
+                Iflex=None, Itorc=None,                       # Inércias do chassi
+                W=None, Lt=None, Ld=None):                    # Unidade de comprimento
         
         # Massas
         self.Mc = Mc               # Massa suspensa TOTAL [kg]
@@ -124,6 +124,12 @@ class Chassis:
             'FL': xdot_cde, 'FR': xdot_cdd, 'RL': xdot_cte, 'RR': xdot_ctd
         }
         return displacements, velocities
+    
+    def dynamics_reaction(self):
+        from Dynamics_metamodel import control
+        roll_dot, roll_disp, pitch_dot, pitch_disp = control.model_input(degrees=True)
+        print(roll_dot[1], roll_disp[1], pitch_dot[1], pitch_disp[1])
+        return  roll_dot[1], roll_disp[1], pitch_dot[1], pitch_disp[1]
 
     def ode_chassi(self, t, y):
         # Desempacotar as variáveis de estado
@@ -139,15 +145,70 @@ class Chassis:
         x_td = self.interpolators['x_rr'](t)
         xdot_td = self.interpolators['xdot_rr'](t)
 
+        roll_dot, roll_disp, pitch_dot, pitch_disp = 0, 0, 0, 0
+
+        #roll_dot, roll_disp, pitch_dot, pitch_disp = self.dynamics_reaction()
+
         # Deslocamentos e Velocidades do Chassis em cada ponto de suspensão
-        x_cdd = Xc + self.Ld * np.sin(theta) - self.W * np.sin(phi)
-        xdot_cdd = Xc_dot + self.Ld * np.cos(theta) * thetadot - self.W * np.cos(phi) * phidot
-        x_cde = Xc + self.Ld * np.sin(theta) + self.W * np.sin(phi)
-        xdot_cde = Xc_dot + self.Ld * np.cos(theta) * thetadot + self.W * np.cos(phi) * phidot
-        x_ctd = Xc - self.Lt * np.sin(theta) - self.W * np.sin(phi)
-        xdot_ctd = Xc_dot - self.Lt * np.cos(theta) * thetadot - self.W * np.cos(phi) * phidot
-        x_cte = Xc - self.Lt * np.sin(theta) + self.W * np.sin(phi)
-        xdot_cte = Xc_dot - self.Lt * np.cos(theta) * thetadot + self.W * np.cos(phi) * phidot
+        x_cdd = (
+            Xc
+            + self.Ld * np.sin(theta)
+            - self.W * np.sin(phi)
+            + self.W * np.sin(roll_disp)
+            + self.Ld * np.sin(pitch_disp)
+        )
+        xdot_cdd = (
+            Xc_dot
+            + self.Ld * np.cos(theta) * thetadot
+            - self.W * np.cos(phi) * phidot
+            + self.W * np.cos(roll_disp) * roll_dot
+            + self.Ld * np.cos(pitch_disp) * pitch_dot
+        )
+
+        x_cde = (
+            Xc
+            + self.Ld * np.sin(theta)
+            + self.W * np.sin(phi)
+            - self.W * np.sin(roll_disp)
+            + self.Ld * np.sin(pitch_disp)
+        )
+        xdot_cde = (
+            Xc_dot
+            + self.Ld * np.cos(theta) * thetadot
+            + self.W * np.cos(phi) * phidot
+            - self.W * np.cos(roll_disp) * roll_dot
+            + self.Ld * np.cos(pitch_disp) * pitch_dot
+        )
+
+        x_ctd = (
+            Xc
+            - self.Lt * np.sin(theta)
+            - self.W * np.sin(phi)
+            + self.W * np.sin(roll_disp)
+            - self.Lt * np.sin(pitch_disp)
+        )
+        xdot_ctd = (
+            Xc_dot
+            - self.Lt * np.cos(theta) * thetadot
+            - self.W * np.cos(phi) * phidot
+            + self.W * np.cos(roll_disp) * roll_dot
+            - self.Lt * np.cos(pitch_disp) * pitch_dot
+        )
+
+        x_cte = (
+            Xc
+            - self.Lt * np.sin(theta)
+            + self.W * np.sin(phi)
+            - self.W * np.sin(roll_disp)
+            - self.Lt * np.sin(pitch_disp)
+        )
+        xdot_cte = (
+            Xc_dot
+            - self.Lt * np.cos(theta) * thetadot
+            + self.W * np.cos(phi) * phidot
+            - self.W * np.cos(roll_disp) * roll_dot
+            - self.Lt * np.cos(pitch_disp) * pitch_dot
+        )
         
         # Forças de suspensão (mola e amortecedor)
         F_dd_spring = self.Kdd * (x_dd - x_cdd)
@@ -312,3 +373,15 @@ def run_simulation():
 # =============================================================================
 if __name__ == "__main__":
     run_simulation()
+
+# chassis = Chassis(
+#         Mc=280, Mst=25, Msd=20,
+#         Kte=5e5, Ktd=5e5, Kde=5e5, Kdd=5e5,
+#         Kpte=2e4, Kptd=2e4, Kpde=2e4, Kpdd=2e4,
+#         Kf=3.01e7, Kt=1.6e7,
+#         Cte=5e3, Ctd=5e3, Cde=3e3, Cdd=3e3,
+#         Cphi=5e2, Ctheta=5e2,
+#         Iflex=5e5, Itorc=5e5,
+#         W=1, Lt=0.5, Ld=0.8
+#     )
+# chassis.dynamics_reaction()

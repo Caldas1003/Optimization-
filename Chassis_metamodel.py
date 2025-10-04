@@ -7,22 +7,117 @@ import functools
 # =============================================================================
 # Modelo do Chassis com todas as funções internas organizadas
 # =============================================================================
+class TireModel:
+    def __init__(self, tire_Sa=0, front_tire_Ls=None, rear_tire_Ls=None, tire_friction_coef=None, tire_Ca=0, params=None):
+        self.front_tire_Sa = tire_Sa                  # Ângulo de deslizamento lateral do pneu [rad]
+        self.rear_tire_Sa = tire_Sa / 10
+        self.front_tire_Ls = front_tire_Ls            # Escorregamento longitudinal frontal [adimensional]
+        self.rear_tire_Ls = rear_tire_Ls              # Escorregamento longitudinal traseiro [adimensional]
+        self.tire_friction_coef = tire_friction_coef  # Coeficiente de atrito entre pneu e pista
+        self.tire_Ca = tire_Ca                        # Ângulo de camber do pneu
+        self.params = params                          # Parâmetros de Pacejka (E, Cy, Cx, c1, c2)
 
-class Chassis:
+    def pacejka_params(self, Fz):
+        # Desembalando os parâmetros de Pacejka
+        E, Cy, Cx, c1, c2 = self.params
+        # Calculando parâmetros intermediários
+        Cs = c1 * np.sin(2 * np.arctan(Fz / c2))
+        D = self.tire_friction_coef * Fz
+        Bx = Cs / (Cx * D)
+        By = Cs / (Cy * D)
+        return E, Cy, Cx, Bx, By, D
+
+    def lateral_force(self, Fz, slip_angle, camber=0):
+        # Desembalando os parâmetros de Pacejka
+        E, Cy, Cx, Bx, By, D = TireModel.pacejka_params(self, Fz)
+        # Calculando a força lateral do pneu
+        tire_lateral_force = D * np.sin(Cy * np.arctan(By * slip_angle - E * (By * slip_angle - np.arctan(By * slip_angle))))
+        # Calculando a força de camber
+        camber_thrust = D / 2 * np.sin(Cy * np.arctan(By * camber))
+        return tire_lateral_force + camber_thrust
+
+    def longitudinal_force(self, Fz, slip_ratio):
+        # Desembalando os parâmetros de Pacejka
+        E, Cy, Cx, Bx, By, D = TireModel.pacejka_params(self, Fz)
+        # Calculando a força longitudinal do pneu
+        tire_longitudinal_force = D * np.sin(Cx * np.arctan(9 * Bx * slip_ratio - E * (Bx * slip_ratio - np.arctan(Bx * slip_ratio))))
+        return tire_longitudinal_force
+
+class VehicleDynamics:
+    def __init__(self, mass, Iz, Ix, Iy, Ld, Lt, W, hcg, tire_params=0, tire_friction_coef=1.0, tire_Ca=0.0):
+        self.m = mass
+        self.Iz = Iz   # momento de inércia em yaw
+        self.Ix = Ix   # momento de inércia em roll
+        self.Iy = Iy   # momento de inércia em pitch
+        self.Ld = Ld   # distância CG → eixo dianteiro
+        self.Lt = Lt   # distância CG → eixo traseiro
+        self.W = W     # bitola (track width)
+        self.hcg = hcg # altura do CG
+
+        # Modelo de pneus
+        self.tires = TireModel(
+            tire_friction_coef=tire_friction_coef,
+            tire_Ca=tire_Ca,
+            params=tire_params
+        )
+
+    def yaw_acc(self, Fx_de=0, Fx_dd=0, Fx_te=0, Fx_td=0, Fy_de=0, Fy_dd=0, Fy_te=0, Fy_td=0):
+        # Momentos
+        lateral_moment = (Fy_de + Fy_dd) * self.Ld - (Fy_te + Fy_td) * self.Lt
+        longitudinal_moment = (Fx_de - Fx_dd + Fx_te - Fx_td) * (self.W / 2)
+        return (lateral_moment + longitudinal_moment) / self.Iz
+
+    def roll_acc(self, Fy_de=0, Fy_dd=0, Fy_te=0, Fy_td=0):
+        roll_moment = (Fy_de + Fy_dd + Fy_te + Fy_td) * self.hcg
+        return roll_moment / self.Ix, roll_moment
+
+    def pitch_acc(self, Fx_de=0, Fx_dd=0, Fx_te=0, Fx_td=0):
+        pitch_moment = (Fx_de + Fx_dd + Fx_te + Fx_td) * self.hcg
+        return pitch_moment / self.Iy, pitch_moment
+    
+    def load_transfer(self, Fz_static_rear, Fz_static_front, 
+                    Fx_de=0, Fx_dd=0, Fx_te=0, Fx_td=0,
+                    Fy_de=0, Fy_dd=0, Fy_te=0, Fy_td=0):
+        """
+        Atualiza as cargas verticais (Fz) em cada roda considerando
+        transferência dinâmica de carga por rolagem e arfagem.
+        """
+
+        # Cargas adicionais devido à dinâmica
+        pitch_load = (Fx_de + Fx_dd + Fx_te + Fx_td) * self.hcg
+        roll_load = (Fy_de + Fy_dd + Fy_te + Fy_td) * self.hcg
+
+        # Atualizando as forças normais em tempo real
+        Tire_Fz_dd = Fz_static_front/2 - roll_load - pitch_load
+        Tire_Fz_de = Fz_static_front/2 + roll_load - pitch_load
+        Tire_Fz_td = Fz_static_rear/2 - roll_load + pitch_load
+        Tire_Fz_te = Fz_static_rear/2 + roll_load + pitch_load
+
+        return Tire_Fz_dd, Tire_Fz_de, Tire_Fz_td, Tire_Fz_te
+    
+class FullModel:
     def __init__(self, 
-                Mc=None, Mst=None, Msd=None,                  # Massas
-                Kte=None, Ktd=None, Kde=None, Kdd=None,       # Rigidez suspensão
-                Kpte=None, Kptd=None, Kpde=None, Kpdd=None,   # Rigidez pneus
-                Kf=None, Kt=None,                             # Rigidez do chassi
-                Cte=None, Ctd=None, Cde=None, Cdd=None,       # Amortecedores suspensão
-                Cphi=None, Ctheta=None,                       # Amortecedores do chassi
-                Iflex=None, Itorc=None,                       # Inércias do chassi
-                W=None, Lt=None, Ld=None):                    # Unidade de comprimento
+                Mc=0, Mst=None, Msd=None, Distribution=0,   # Massas
+                Kte=None, Ktd=None, Kde=None, Kdd=None,           # Rigidez suspensão
+                Kpte=None, Kptd=None, Kpde=None, Kpdd=None,       # Rigidez pneus
+                Kf=None, Kt=None,                                 # Rigidez do chassi
+                Cte=None, Ctd=None, Cde=None, Cdd=None,           # Amortecedores suspensão
+                Cphi=None, Ctheta=None,                           # Amortecedores do chassi
+                Iflex=None, Itorc=None,                           # Inércias do chassi
+                W=None, Lt=None, Ld=None, hcg=None,               # Unidade de comprimento
+                tire_coef=None,params=None,                       # Parâmetros de pneu
+                slip=None, rear_ratio=None, front_ratio=None,     # Entradas de controle do carro
+                Ix=None, Iz=None, Iy=None
+                ):                                      
         
         # Massas
-        self.Mc = Mc               # Massa suspensa TOTAL [kg]
-        self.Mst_unsprung = Mst    # Massa NÃO suspensa traseira [kg]
-        self.Msd_unsprung = Msd    # Massa NÃO suspensa dianteira [kg]
+        self.Mc = Mc                                              # Massa suspensa TOTAL [kg]
+        self.Mst_unsprung = Mst                                   # Massa NÃO suspensa traseira [kg]
+        self.Msd_unsprung = Msd                                   # Massa NÃO suspensa dianteira [kg]
+        self.Distribution = Distribution                          # Distribuição de peso na traseira (adimensional)
+        self.Fz_static_rear = 9.81 * Mc * Distribution/2          # Carga no eixo traseiro (N)
+        self.Fz_static_front = 9.81 * Mc * (1 - Distribution)/2   # Carga no eixo dianteiro (N)
+        
         
         # Rigidez da suspensão
         self.Kte = Kte   # Traseira esquerda [N/m]
@@ -58,6 +153,19 @@ class Chassis:
         self.W = W       # Metade da largura do carro [m]
         self.Lt = Lt     # Distância entre eixo traseiro e CG [m]
         self.Ld = Ld     # Distância entre eixo dianteiro e CG [m]
+
+        # Entradas de controle do carro
+        self.slip_angle = slip                  # Ângulo de esterçamento [Graus]
+        self.rear_slip_angle = slip/10          # Ângulo de esterçamento traseiro [Graus]
+        self.rear_slip_ratio = rear_ratio       # Taxa de escorregamento traseira [Adm]
+        self.front_slip_ratio = front_ratio     # Taxa de escorregamento dianteira [Adm]
+
+
+        self.tire = TireModel(
+            tire_friction_coef = tire_coef,
+            params=params)
+        
+        self.dynamics = VehicleDynamics(mass=Mc, Iz=Iz, Ix=Ix, Iy=Iy, Ld=Ld, Lt=Lt, W=W, hcg=hcg)
         
         
     def spring(self, k, x):
@@ -66,7 +174,9 @@ class Chassis:
     def damper(self, c, xdot):
         return (c * xdot)
 
-    def ode_total(self, t, y, z_road_funcs):
+    def ode_total(self, t, y, z_road_funcs): 
+
+        " ------------------------------- Metamodelo de Chassis------------------------------- "
         # -------------------------------
         # Desempacotar estados
         # -------------------------------
@@ -100,9 +210,6 @@ class Chassis:
         xdot_cde = Xc_dot -(+ self.Ld*np.cos(theta)*thetadot + self.W*np.cos(phi)*phidot)
         xdot_ctd = Xc_dot -(- self.Lt*np.cos(theta)*thetadot - self.W*np.cos(phi)*phidot)
         xdot_cte = Xc_dot -(- self.Lt*np.cos(theta)*thetadot + self.W*np.cos(phi)*phidot)
-
-        print(self.Ld*np.sin(theta) - self.W*np.sin(phi))
-        
 
         # -------------------------------
         # Forças de suspensão
@@ -144,6 +251,40 @@ class Chassis:
             - (self.Kf * theta + self.Ctheta * thetadot)
         )
 
+        " ------------------------------- Metamodelo de Dinâmica------------------------------- "
+        # ----------------------------
+        # Desempacotar estados
+        # ----------------------------
+        yaw, yawdot = y[14], y[15]       # Yaw
+        pitch, pitchdot = y[16], y[17]   # Pitch(Guinada)
+        roll, rolldot = y[18], y[19]     # Roll(Rolagem)
+        Fz_de, Fz_dd, Fz_te, Fz_td = y[20], y[21], y[22], y[23]
+
+        # ----------------------------
+        # Forças dos pneus
+        # ----------------------------
+
+        Fx_de = self.tire.longitudinal_force(Fz_de, self.front_slip_ratio)
+        Fx_dd = self.tire.longitudinal_force(Fz_dd, self.front_slip_ratio)
+        Fx_te = self.tire.longitudinal_force(Fz_te, self.rear_slip_ratio)
+        Fx_td = self.tire.longitudinal_force(Fz_td, self.rear_slip_ratio)
+
+        Fy_de = self.tire.lateral_force(Fz_de, self.slip_angle)
+        Fy_dd = self.tire.lateral_force(Fz_dd, self.slip_angle)
+        Fy_te = self.tire.lateral_force(Fz_te, self.rear_slip_angle)
+        Fy_td = self.tire.lateral_force(Fz_td, self.rear_slip_angle)
+
+        Fz_dd, Fz_de, Fz_td, Fz_te = self.dynamics.load_transfer(
+                                    Fz_static_front=self.Fz_static_front, Fz_static_rear=self.Fz_static_rear,
+                                    Fx_de=Fx_de, Fx_dd=Fx_dd, Fx_te=Fx_te, Fx_td=Fx_td,
+                                    Fy_de=Fy_de, Fy_dd=Fy_dd, Fy_te=Fy_te, Fy_td=Fy_td)
+        # ----------------------------
+        # Acelerações Angulares
+        # ----------------------------
+        yawddot = self.dynamics.yaw_acc(Fx_de=Fx_de, Fx_dd=Fx_dd, Fx_te=Fx_te, Fx_td=Fx_td, Fy_de=Fy_de, Fy_dd=Fy_dd, Fy_te=Fy_te, Fy_td=Fy_td)
+        _, rollddot = self.dynamics.roll_acc(Fy_de=Fy_de, Fy_dd=Fy_dd, Fy_te=Fy_te, Fy_td=Fy_td)
+        _, pitchddot = self.dynamics.pitch_acc(Fx_de=Fx_de, Fx_dd=Fx_dd, Fx_te=Fx_te, Fx_td=Fx_td)
+
         # -------------------------------
         # Retornar Funções
         # -------------------------------
@@ -154,14 +295,12 @@ class Chassis:
             xdot_td, xddot_td,
             phidot, phi_acc,
             thetadot, theta_acc,
-            Xc_dot, Xc_acc
+            Xc_dot, Xc_acc,
+            yawdot, yawddot,
+            pitchdot, pitchddot,
+            rolldot, rollddot,
+            Fz_de, Fz_dd, Fz_te, Fz_td 
         ]
-    
-    def dynamics_reaction(self):
-        from Dynamics_metamodel import control
-        roll_dot, roll_disp, pitch_dot, pitch_disp = control.model_input(degrees=True)
-        print(roll_dot[1], roll_disp[1], pitch_dot[1], pitch_disp[1])
-        return  roll_dot[1], roll_disp[1], pitch_dot[1], pitch_disp[1]
 
     def gerar_funcoes_entrada(self, tempo_direito, tempo_esquerdo, step_value_d, step_value_e):
         def road_input_step(t, t_start, height):
@@ -197,22 +336,30 @@ def run_simulation():
     tempo_inicio_direito = 1.0
     tempo_inicio_esquerdo = 3.0
 
-    # Chassis
-    chassis = Chassis(
-        Mc=280, Mst=25, Msd=20,
+    # Chassis (exemplo de parâmetros; ajuste conforme quiser)
+    chassis = FullModel(
+        Mc=280, Mst=25, Msd=20, Distribution=0.5,
         Kte=5e5, Ktd=5e5, Kde=5e5, Kdd=5e5,
         Kpte=2e4, Kptd=2e4, Kpde=2e4, Kpdd=2e4,
         Kf=3.01e7, Kt=1.6e7,
         Cte=5e3, Ctd=5e3, Cde=3e3, Cdd=3e3,
-        Cphi=5e4, Ctheta=5e4,
+        Cphi=5e2, Ctheta=5e2,
         Iflex=5e5, Itorc=5e5,
-        W=W, Lt=Lt, Ld=Ld
+        W=W, Lt=Lt, Ld=Ld, hcg=0.3,
+        tire_coef=1.45, params=(0.3336564873588197, 1.627, 1.0, 931.405, 366.493),
+        slip=4, rear_ratio=0.20, front_ratio=0.10,
+        Ix=1e4, Iz=1e4, Iy=1e4
     )
 
     funcoes_entrada = chassis.gerar_funcoes_entrada(tempo_inicio_direito, tempo_inicio_esquerdo,
                                                     altura_degrau_d, altura_degrau_e)
     
-    y0 = np.zeros(14)  # estados iniciais (rodas e chassi em repouso)
+    Fz_de0 = 600
+    Fz_dd0 = 600
+    Fz_te0 = 800
+    Fz_td0 = 800
+
+    y0 = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,Fz_de0, Fz_dd0, Fz_te0, Fz_td0]
     sol = solve_ivp(fun=lambda t,y: chassis.ode_total(t,y,funcoes_entrada),
                 t_span=t_span, y0=y0, t_eval=t_eval, method='LSODA')
     
@@ -228,13 +375,18 @@ def run_simulation():
     # 5 → flexão do chassi
     # 6 → deslocamento global do carro
 
-    solucao_roda_de = sol.y[0]   # dianteira esquerda
-    solucao_roda_dd = sol.y[2]   # dianteira direita
-    solucao_roda_te = sol.y[4]   # traseira esquerda
-    solucao_roda_td = sol.y[6]   # traseira direita
-    solucao_torcao  = sol.y[8]   # torção do chassi (phi)
-    solucao_flexao  = sol.y[10]  # flexão do chassi (theta)
-    solucao_carro   = sol.y[12]  # deslocamento global do carro
+    solucao_roda_de = sol.y[0]    # dianteira esquerda
+    solucao_roda_dd = sol.y[2]    # dianteira direita
+    solucao_roda_te = sol.y[4]    # traseira esquerda
+    solucao_roda_td = sol.y[6]    # traseira direita
+    solucao_torcao  = sol.y[8]    # torção do chassi (phi)
+    solucao_flexao  = sol.y[10]   # flexão do chassi (theta)
+    solucao_carro   = sol.y[12]   # deslocamento global do carro
+
+    # Novos parâmetros dinâmicos
+    solucao_yaw     = sol.y[14]   # guinada
+    solucao_roll    = sol.y[16]   # rolagem
+    solucao_pitch   = sol.y[18]   # arfagem
 
 
     plt.plot(t, solucao_roda_de, label="Roda Dianteira Esquerda")
@@ -253,6 +405,33 @@ def run_simulation():
     plt.xlabel("Tempo [s]")
     plt.ylabel("Deslocamento [m]")
     plt.show()
+
+    # Yaw
+    plt.figure()
+    plt.plot(t, solucao_yaw, label="Yaw (guinada)")
+    plt.xlabel("Tempo [s]")
+    plt.ylabel("Ângulo [rad]")
+    plt.title("Resposta em Yaw")
+    plt.legend()
+    plt.grid(True)
+
+    # Roll
+    plt.figure()
+    plt.plot(t, solucao_roll, label="Roll (rolagem)")
+    plt.xlabel("Tempo [s]")
+    plt.ylabel("Ângulo [rad]")
+    plt.title("Resposta em Roll")
+    plt.legend()
+    plt.grid(True)
+
+    # Pitch
+    plt.figure()
+    plt.plot(t, solucao_pitch, label="Pitch (arfagem)")
+    plt.xlabel("Tempo [s]")
+    plt.ylabel("Ângulo [rad]")
+    plt.title("Resposta em Pitch")
+    plt.legend()
+    plt.grid(True)
 
 # =============================================================================
 # Rodar a simulação

@@ -36,7 +36,7 @@ class PistaComAtrito:
         return x, y
 
     def suavizar_pista(self):
-        t = np.linspace(0, len(self.X_centro) - 1, 200)
+        t = np.linspace(0, len(self.X_centro) - 1, 100)
         cs_x = CubicSpline(np.arange(len(self.X_centro)), self.X_centro, bc_type='periodic')
         cs_y = CubicSpline(np.arange(len(self.Y_centro)), self.Y_centro, bc_type='periodic')
         cs_z = CubicSpline(np.arange(len(self.Z_centro)), self.Z_centro, bc_type='periodic')
@@ -247,7 +247,7 @@ class PistaComAtrito:
         ax.legend()
         
         plt.savefig(saveAs)
-        fig.clear()
+        plt.close()
 
 # Definir coordenadas e elevacoes
 gps_coords = [

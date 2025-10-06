@@ -59,13 +59,15 @@ def calculate_parameters_u(waypoints: list, track_start: int, track_end: int) ->
 def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
     splines = list()
     u = calculate_parameters_u(waypoints, track_start, track_end)
+
     for i in range(track_start, track_end - 1):							
+        can_go_straight = i == track_start
         first_derivative_at_t0 = [0, 0]
         first_derivative_at_t1 = [0, 0]
 
         X_k, Y_k, Z_k = TRACK.CHECKPOINTS[i][waypoints[i - track_start]]
         X_k_plus_1, Y_k_plus_1, Z_k_plus_1 = TRACK.CHECKPOINTS[i + 1][waypoints[i + 1 - track_start]]
-        if i < track_end - 2:
+        if i < track_end - 2 and not can_go_straight:
             X_k_plus_2, Y_k_plus_2, Z_k_plus_2 = TRACK.CHECKPOINTS[i + 2][waypoints[i + 2 - track_start]]
 
             u_x_k = u[i - track_start][0]
@@ -79,6 +81,10 @@ def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
             ]
 
         if i > track_start:
+            X_k_minus_1, Y_k_minus_1, Z_k_minus_1 = TRACK.CHECKPOINTS[i - 1][waypoints[i - 1 - track_start]]
+            full_turn_radius = get_turn_radius([X_k_minus_1, Y_k_minus_1], [X_k, Y_k], [X_k_plus_1, Y_k_plus_1])
+            can_go_straight = full_turn_radius >= 33 # allows max speed (22.22 m/s)
+
             previous_spline = splines[i - 1 - track_start]
             X_spline, Y_spline = previous_spline
             # t = 1 because the first derivative of the current segment at t=0 should be equal to the first derivative of the previous segment at t=1, same goes for seconds
@@ -87,15 +93,13 @@ def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
                     first_derivative(1, Y_spline["a"], Y_spline["b"], Y_spline["c"]),
             ]
 
-        # print(f"i: {i}")
-        # print(f"X_k = {X_k}, Y_k = {Y_k}")
-        # print(f"X_k_plus_1 = {X_k_plus_1}, Y_k = {Y_k_plus_1}")
-        # print(f"first derivatives (t=0) = {first_derivative_at_t0}")
-        # print(f"first derivatives (t=1) = {first_derivative_at_t1}")
-        # print("---------------------------------------------------------------")
-
-        X_coefs = calculate_coeficients(X_k, X_k_plus_1, first_derivative_at_t0[0], first_derivative_at_t1[0])
-        Y_coefs = calculate_coeficients(Y_k, Y_k_plus_1, first_derivative_at_t0[1], first_derivative_at_t1[1])
+        
+        if can_go_straight:
+            X_coefs = {"a": 0, "b": 0, "c": (X_k_plus_1 - X_k), "d": X_k}
+            Y_coefs = {"a": 0, "b": 0, "c": (Y_k_plus_1 - Y_k), "d": Y_k}
+        else:
+            X_coefs = calculate_coeficients(X_k, X_k_plus_1, first_derivative_at_t0[0], first_derivative_at_t1[0])
+            Y_coefs = calculate_coeficients(Y_k, Y_k_plus_1, first_derivative_at_t0[1], first_derivative_at_t1[1])
             
         splines.append([X_coefs, Y_coefs])
     
@@ -282,7 +286,20 @@ def calculate_angle(P1, P2, P3):
     magnitude_A = np.linalg.norm(vector_A)
     magnitude_B = np.linalg.norm(vector_B)
 
-    angle_in_rad = np.arccos(scalar_product / (magnitude_A * magnitude_B))
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")  # catch all warnings
+        value = scalar_product / (magnitude_A * magnitude_B)
+        value = 1 if value > 1 else value
+        value = -1 if value < -1 else value
+        angle_in_rad = np.arccos(value)
+
+        # Check if any warnings were triggered
+        if w:
+            for warn in w:
+                print(f"Caught warning: {warn.message}")
+                print(f"value: {value}")
+                print(value > 1)
+    
     if np.degrees(angle_in_rad) > 180:
         print("Ângulo maior que 180 graus, o que não é esperado.")
 
@@ -294,7 +311,7 @@ def calculate_angle_penalty(P1, P2, P3):
     Quanto menor o ângulo, maior a penalização.
     """
     angle = calculate_angle(P1, P2, P3)
-    penalty = (5/(90**2))*((180 - angle)**2)
+    penalty = (20/(90**2))*((180 - angle)**2)
 
     if penalty < 0:
         print("Penalidade menor que zero, o que não é esperado.")
@@ -329,7 +346,7 @@ def calculate_time(points: list, speed_profile: list) -> float:
 
         stretch_time = (following_speed - current_speed) / acceleration if acceleration != 0 else stretch_distance / current_speed
         penalty = calculate_angle_penalty(previous_point, current_point, following_point)
-        
+
         total_time += stretch_time + penalty
         # print(f"total: {total_time}")
 
@@ -350,13 +367,13 @@ def generations_to_plot(amount: int, step: int) -> list:
 
 def run():
     start_time = time.time()
-    F = 0.5
-    CR = 0.85
-    max_gen = 100
+    F = 0.8
+    CR = 0.5
+    max_gen = 50
     pop_size = 1400
     track_start = 0
-    track_end = 70
-    gens_to_plot = generations_to_plot(10, 10)
+    track_end = 25
+    gens_to_plot = generations_to_plot(5, 10)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H%M")
     folder = f"{timestamp} - speed profile gen"

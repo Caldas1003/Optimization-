@@ -67,12 +67,12 @@ class VehicleDynamics:
         longitudinal_moment = (Fx_de - Fx_dd + Fx_te - Fx_td) * (self.W / 2)
         return (lateral_moment + longitudinal_moment) / self.Iz
 
-    def roll_acc(self, Fy_de=0, Fy_dd=0, Fy_te=0, Fy_td=0):
-        roll_moment = (Fy_de + Fy_dd + Fy_te + Fy_td) * self.hcg
+    def roll_acc(self, Fy_de=0, Fy_dd=0, Fy_te=0, Fy_td=0, chassis_F_de=0, chassis_F_dd=0, chassis_F_te=0, chassis_F_td=0):
+        roll_moment = (Fy_de + Fy_dd + Fy_te + Fy_td) * self.hcg - (chassis_F_de + chassis_F_dd + chassis_F_te + chassis_F_td) * self.W
         return roll_moment / self.Ix, roll_moment
 
-    def pitch_acc(self, Fx_de=0, Fx_dd=0, Fx_te=0, Fx_td=0):
-        pitch_moment = (Fx_de + Fx_dd + Fx_te + Fx_td) * self.hcg
+    def pitch_acc(self, Fx_de=0, Fx_dd=0, Fx_te=0, Fx_td=0, chassis_F_de=0, chassis_F_dd=0, chassis_F_te=0, chassis_F_td=0):
+        pitch_moment = (Fx_de + Fx_dd + Fx_te + Fx_td) * self.hcg - (((chassis_F_de + chassis_F_dd) * self.Ld) + ((chassis_F_te + chassis_F_td) * self.Lt)) 
         return pitch_moment / self.Iy, pitch_moment
     
     def load_transfer(self, Fz_static_rear, Fz_static_front, 
@@ -88,10 +88,10 @@ class VehicleDynamics:
         roll_load = (Fy_de + Fy_dd + Fy_te + Fy_td) * self.hcg
 
         # Atualizando as forças normais em tempo real
-        Tire_Fz_dd = Fz_static_front/2 - roll_load - pitch_load
-        Tire_Fz_de = Fz_static_front/2 + roll_load - pitch_load
-        Tire_Fz_td = Fz_static_rear/2 - roll_load + pitch_load
-        Tire_Fz_te = Fz_static_rear/2 + roll_load + pitch_load
+        Tire_Fz_dd = Fz_static_front/2 + roll_load - pitch_load
+        Tire_Fz_de = Fz_static_front/2 - roll_load - pitch_load
+        Tire_Fz_td = Fz_static_rear/2 + roll_load + pitch_load
+        Tire_Fz_te = Fz_static_rear/2 - roll_load + pitch_load
 
         return Tire_Fz_dd, Tire_Fz_de, Tire_Fz_td, Tire_Fz_te
     
@@ -178,7 +178,7 @@ class FullModel:
 
         " ------------------------------- Metamodelo de Chassis------------------------------- "
         # -------------------------------
-        # Desempacotar estados
+        # Desempacotar estados de Chassi
         # -------------------------------
         x_de, xdot_de = y[0], y[1]   # Dianteiro Esquerdo
         x_dd, xdot_dd = y[2], y[3]   # Dianteiro Direito
@@ -189,6 +189,16 @@ class FullModel:
         theta, thetadot = y[10], y[11]
         Xc, Xc_dot      = y[12], y[13]
 
+        # ----------------------------
+        # Desempacotar estados de Dinâmica
+        # ----------------------------
+        yaw, yawdot = y[14], y[15]       # Yaw
+        pitch, pitchdot = y[16], y[17]   # Pitch(Guinada)
+        roll, rolldot = y[18], y[19]     # Roll(Rolagem)
+        Fz_de, Fz_dd, Fz_te, Fz_td = y[20], y[21], y[22], y[23]
+        x_car, y_car = y[24], y[25]
+        vx_car, vy_car = y[25], y[27]
+
         # -------------------------------
         # Inputs de estrada
         # -------------------------------
@@ -197,19 +207,29 @@ class FullModel:
         zr_te = z_road_funcs['TE'](t)
         zr_td = z_road_funcs['TD'](t)
 
+        xreac_dd = -(self.W * np.sin(roll)) + (self.Ld * np.sin(pitch))
+        xreac_de = +(self.W * np.sin(roll)) + (self.Ld * np.sin(pitch))
+        xreac_td = -(self.W * np.sin(roll)) - (self.Lt * np.sin(pitch))
+        xreac_te = +(self.W * np.sin(roll)) - (self.Lt * np.sin(pitch))
+
+        xdotreac_dd = -((self.W * np.sin(roll))* rolldot) + ((self.Ld * np.sin(pitch))* pitchdot)
+        xdotreac_de = +((self.W * np.sin(roll))* rolldot) + ((self.Ld * np.sin(pitch))* pitchdot)
+        xdotreac_td = -((self.W * np.sin(roll))* rolldot) - ((self.Lt * np.sin(pitch))* pitchdot)
+        xdotreac_te = +((self.W * np.sin(roll))* rolldot) - ((self.Lt * np.sin(pitch))* pitchdot)
+
         # -------------------------------
         # Cinemática do chassi
         # -------------------------------
         
-        x_cdd = Xc -(+ self.Ld*np.sin(theta) - self.W*np.sin(phi))   # dianteiro direito
-        x_cde = Xc -(+ self.Ld*np.sin(theta) + self.W*np.sin(phi))   # dianteiro esquerdo
-        x_ctd = Xc -(- self.Lt*np.sin(theta) - self.W*np.sin(phi))   # traseiro direito
-        x_cte = Xc -(- self.Lt*np.sin(theta) + self.W*np.sin(phi))   # traseiro esquerdo
+        x_cdd = Xc -(- self.Ld*np.sin(theta) - self.W*np.sin(phi)) + xreac_dd   # dianteiro direito
+        x_cde = Xc -(- self.Ld*np.sin(theta) + self.W*np.sin(phi)) + xreac_de   # dianteiro esquerdo
+        x_ctd = Xc -(+ self.Lt*np.sin(theta) - self.W*np.sin(phi)) + xreac_td   # traseiro direito
+        x_cte = Xc -(+ self.Lt*np.sin(theta) + self.W*np.sin(phi)) + xreac_te   # traseiro esquerdo
 
-        xdot_cdd = Xc_dot -(+ self.Ld*np.cos(theta)*thetadot - self.W*np.cos(phi)*phidot)
-        xdot_cde = Xc_dot -(+ self.Ld*np.cos(theta)*thetadot + self.W*np.cos(phi)*phidot)
-        xdot_ctd = Xc_dot -(- self.Lt*np.cos(theta)*thetadot - self.W*np.cos(phi)*phidot)
-        xdot_cte = Xc_dot -(- self.Lt*np.cos(theta)*thetadot + self.W*np.cos(phi)*phidot)
+        xdot_cdd = Xc_dot -(- self.Ld*np.cos(theta)*thetadot - self.W*np.cos(phi)*phidot - xdotreac_dd)
+        xdot_cde = Xc_dot -(- self.Ld*np.cos(theta)*thetadot + self.W*np.cos(phi)*phidot - xdotreac_de)
+        xdot_ctd = Xc_dot -(+ self.Lt*np.cos(theta)*thetadot - self.W*np.cos(phi)*phidot - xdotreac_td)
+        xdot_cte = Xc_dot -(+ self.Lt*np.cos(theta)*thetadot + self.W*np.cos(phi)*phidot - xdotreac_te)
 
         # -------------------------------
         # Forças de suspensão
@@ -253,14 +273,6 @@ class FullModel:
 
         " ------------------------------- Metamodelo de Dinâmica------------------------------- "
         # ----------------------------
-        # Desempacotar estados
-        # ----------------------------
-        yaw, yawdot = y[14], y[15]       # Yaw
-        pitch, pitchdot = y[16], y[17]   # Pitch(Guinada)
-        roll, rolldot = y[18], y[19]     # Roll(Rolagem)
-        Fz_de, Fz_dd, Fz_te, Fz_td = y[20], y[21], y[22], y[23]
-
-        # ----------------------------
         # Forças dos pneus
         # ----------------------------
 
@@ -281,9 +293,13 @@ class FullModel:
         # ----------------------------
         # Acelerações Angulares
         # ----------------------------
+
         yawddot = self.dynamics.yaw_acc(Fx_de=Fx_de, Fx_dd=Fx_dd, Fx_te=Fx_te, Fx_td=Fx_td, Fy_de=Fy_de, Fy_dd=Fy_dd, Fy_te=Fy_te, Fy_td=Fy_td)
-        _, rollddot = self.dynamics.roll_acc(Fy_de=Fy_de, Fy_dd=Fy_dd, Fy_te=Fy_te, Fy_td=Fy_td)
-        _, pitchddot = self.dynamics.pitch_acc(Fx_de=Fx_de, Fx_dd=Fx_dd, Fx_te=Fx_te, Fx_td=Fx_td)
+        rollddot, _ = self.dynamics.roll_acc(Fy_de=Fy_de, Fy_dd=Fy_dd, Fy_te=Fy_te, Fy_td=Fy_td, chassis_F_de=F_de, chassis_F_dd=F_dd, chassis_F_te=F_te, chassis_F_td=F_td)
+        pitchddot, _ = self.dynamics.pitch_acc(Fx_de=Fx_de, Fx_dd=Fx_dd, Fx_te=Fx_te, Fx_td=Fx_td, chassis_F_de=F_de, chassis_F_dd=F_dd, chassis_F_te=F_te, chassis_F_td=F_td)
+
+        x_acc_car = ((Fx_de + Fx_dd + Fx_te + Fx_td) * np.cos(yaw) + (Fy_de + Fy_dd + Fy_te + Fy_td) * np.sin(yaw))/ self.Mc
+        y_acc_car = ((Fy_de + Fy_dd + Fy_te + Fy_td) * np.cos(yaw) + (Fx_de + Fx_dd + Fx_te + Fx_td) * np.sin(yaw))/ self.Mc
 
         # -------------------------------
         # Retornar Funções
@@ -299,7 +315,9 @@ class FullModel:
             yawdot, yawddot,
             pitchdot, pitchddot,
             rolldot, rollddot,
-            Fz_de, Fz_dd, Fz_te, Fz_td 
+            Fz_de, Fz_dd, Fz_te, Fz_td,
+            vx_car, vy_car,
+            x_acc_car, y_acc_car
         ]
 
     def gerar_funcoes_entrada(self, tempo_direito, tempo_esquerdo, step_value_d, step_value_e):
@@ -325,10 +343,10 @@ def get_simulation_time(t_start, t_end, dt):
 # =============================================================================
 def run_simulation():
     
-    t_span, t_eval = get_simulation_time(t_start=0.0, t_end=10.0, dt=0.001)
+    t_span, t_eval = get_simulation_time(t_start=0.0, t_end=10.0, dt=0.00001)
 
     # Parâmetros geométricos [m]
-    Ld, Lt, W = 1.4, 1.1, 0.45
+    Ld, Lt, W = 1.4, 1.1, 0.5
 
     # Degraus
     altura_degrau_d = 1
@@ -342,13 +360,13 @@ def run_simulation():
         Kte=5e5, Ktd=5e5, Kde=5e5, Kdd=5e5,
         Kpte=2e4, Kptd=2e4, Kpde=2e4, Kpdd=2e4,
         Kf=3.01e7, Kt=1.6e7,
-        Cte=5e3, Ctd=5e3, Cde=3e3, Cdd=3e3,
-        Cphi=5e2, Ctheta=5e2,
+        Cte=5e3, Ctd=5e3, Cde=3e4, Cdd=3e3,
+        Cphi=2e5, Ctheta=2e5,
         Iflex=5e5, Itorc=5e5,
         W=W, Lt=Lt, Ld=Ld, hcg=0.3,
         tire_coef=1.45, params=(0.3336564873588197, 1.627, 1.0, 931.405, 366.493),
-        slip=4, rear_ratio=0.20, front_ratio=0.10,
-        Ix=1e4, Iz=1e4, Iy=1e4
+        slip=9, rear_ratio=0.25, front_ratio=0.10,
+        Ix=1e5, Iz=1e3, Iy=1e5
     )
 
     funcoes_entrada = chassis.gerar_funcoes_entrada(tempo_inicio_direito, tempo_inicio_esquerdo,
@@ -359,7 +377,7 @@ def run_simulation():
     Fz_te0 = 800
     Fz_td0 = 800
 
-    y0 = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,Fz_de0, Fz_dd0, Fz_te0, Fz_td0]
+    y0 = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,Fz_de0, Fz_dd0, Fz_te0, Fz_td0,0,0,0,0]
     sol = solve_ivp(fun=lambda t,y: chassis.ode_total(t,y,funcoes_entrada),
                 t_span=t_span, y0=y0, t_eval=t_eval, method='LSODA')
     
@@ -388,6 +406,11 @@ def run_simulation():
     solucao_roll    = sol.y[16]   # rolagem
     solucao_pitch   = sol.y[18]   # arfagem
 
+    # Deslocamentos e velocidades finais do carro
+    solucao_x       = sol.y[24]
+    solucao_y       = sol.y[25]
+    solucao_vx      = sol.y[26]
+    solucao_vy      = sol.y[27]
 
     plt.plot(t, solucao_roda_de, label="Roda Dianteira Esquerda")
     plt.plot(t, solucao_roda_dd, label="Roda Dianteira Direita")
@@ -430,6 +453,42 @@ def run_simulation():
     plt.xlabel("Tempo [s]")
     plt.ylabel("Ângulo [rad]")
     plt.title("Resposta em Pitch")
+    plt.legend()
+    plt.grid(True)
+
+    # Deslocamento
+    plt.figure()
+    plt.plot(t, solucao_x, label="Deslocamento em X")
+    plt.xlabel("Tempo [s]")
+    plt.ylabel("Distância [m]")
+    plt.title("Deslocamento do carro")
+    plt.legend()
+    plt.grid(True)
+
+    # Deslocamento
+    plt.figure()
+    plt.plot(t, solucao_y, label="Deslocamento em Y")
+    plt.xlabel("Tempo [s]")
+    plt.ylabel("Distância [m]")
+    plt.title("Deslocamento do carro")
+    plt.legend()
+    plt.grid(True)
+
+    # Deslocamento
+    plt.figure()
+    plt.plot(t, solucao_vx, label="Velocidade em X")
+    plt.xlabel("Tempo [s]")
+    plt.ylabel("Velocidade [m/s]")
+    plt.title("Velocidade do carro")
+    plt.legend()
+    plt.grid(True)
+
+    # Deslocamento
+    plt.figure()
+    plt.plot(t, solucao_vy, label="Velocidade em Y")
+    plt.xlabel("Tempo [s]")
+    plt.ylabel("Velocidade [m/s]")
+    plt.title("Velocidade do carro")
     plt.legend()
     plt.grid(True)
 

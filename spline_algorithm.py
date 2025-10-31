@@ -9,27 +9,22 @@ from PistaComAtrito import TRACK
 from diferential_evolution import customDifferentialEvolution
 
 
-def spline_equation(t: float, a: float, b: float, c: float, d: float) -> float:
-    return a*(t**3) + b*(t**2) + c*t + d
+def spline_equation(t: float, a: float, b: float, c: float) -> float:
+    return a*(t**2) + b*t + c
 
 def first_derivative(t: float, a: float, b: float, c: float) -> float:
-    return 3*a*(t**2) + 2*b*t + c
-
-def second_derivative(t: float, a: float, b: float) -> float:
-    return 6*a*t + 2*b
+    return 2*a*t + b
 
 def calculate_coeficients(
     spline_at_t0: float,
     spline_at_t1: float,
     spline_first_derivative_at_t0: float,
-    spline_first_derivative_at_t1: float,
 ) -> dict:
-    d = spline_at_t0
-    c = spline_first_derivative_at_t0
-    b = 3*(spline_at_t1 - spline_at_t0) - 2*spline_first_derivative_at_t0 - spline_first_derivative_at_t1
-    a = -2*(spline_at_t1 - spline_at_t0) + spline_first_derivative_at_t0 + spline_first_derivative_at_t1
+    c = spline_at_t0
+    b = spline_first_derivative_at_t0
+    a = spline_at_t1 - b - c
 
-    return {"a": a, "b": b, "c": c, "d": d}
+    return { "a": a, "b": b, "c": c }
 
 def catmull_rom_tangent(P_k_plus_1: float, P_k_minus_1: float, u_k_plus_1: float, u_k_minus_1: float, tau = 0.25):
     """k is relative to the Knot (point) you want the parameter u for"""
@@ -63,22 +58,9 @@ def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
     for i in range(track_start, track_end - 1):							
         can_go_straight = i == track_start
         first_derivative_at_t0 = [0, 0]
-        first_derivative_at_t1 = [0, 0]
 
         X_k, Y_k, Z_k = TRACK.CHECKPOINTS[i][waypoints[i - track_start]]
         X_k_plus_1, Y_k_plus_1, Z_k_plus_1 = TRACK.CHECKPOINTS[i + 1][waypoints[i + 1 - track_start]]
-        if i < track_end - 2 and not can_go_straight:
-            X_k_plus_2, Y_k_plus_2, Z_k_plus_2 = TRACK.CHECKPOINTS[i + 2][waypoints[i + 2 - track_start]]
-
-            u_x_k = u[i - track_start][0]
-            u_y_k = u[i - track_start][1]
-            u_x_k_plus_2 = u[i - track_start + 2][0]
-            u_y_k_plus_2 = u[i - track_start + 2][1]
-
-            first_derivative_at_t1 = [
-                catmull_rom_tangent(X_k_plus_2, X_k, u_x_k_plus_2, u_x_k),
-                catmull_rom_tangent(Y_k_plus_2, Y_k, u_y_k_plus_2, u_y_k)
-            ]
 
         if i > track_start:
             X_k_minus_1, Y_k_minus_1, Z_k_minus_1 = TRACK.CHECKPOINTS[i - 1][waypoints[i - 1 - track_start]]
@@ -95,11 +77,11 @@ def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
 
         
         if can_go_straight:
-            X_coefs = {"a": 0, "b": 0, "c": (X_k_plus_1 - X_k), "d": X_k}
-            Y_coefs = {"a": 0, "b": 0, "c": (Y_k_plus_1 - Y_k), "d": Y_k}
+            X_coefs = { "a": 0, "b": (X_k_plus_1 - X_k), "c": X_k }
+            Y_coefs = { "a": 0, "b": (Y_k_plus_1 - Y_k), "c": Y_k }
         else:
-            X_coefs = calculate_coeficients(X_k, X_k_plus_1, first_derivative_at_t0[0], first_derivative_at_t1[0])
-            Y_coefs = calculate_coeficients(Y_k, Y_k_plus_1, first_derivative_at_t0[1], first_derivative_at_t1[1])
+            X_coefs = calculate_coeficients(X_k, X_k_plus_1, first_derivative_at_t0[0])
+            Y_coefs = calculate_coeficients(Y_k, Y_k_plus_1, first_derivative_at_t0[1])
             
         splines.append([X_coefs, Y_coefs])
     
@@ -114,14 +96,13 @@ def generate_path(waypoints: list, track_start: int, track_end: int) -> list:
     for i in range(track_start, track_end - 1):
         X_spline, Y_spline = splines[i - track_start]
         if i == track_start:
-            x = spline_equation(0, X_spline["a"], X_spline["b"], X_spline["c"], X_spline["d"])
-            y = spline_equation(0, Y_spline["a"], Y_spline["b"], Y_spline["c"], Y_spline["d"])
+            x = spline_equation(0, X_spline["a"], X_spline["b"], X_spline["c"])
+            y = spline_equation(0, Y_spline["a"], Y_spline["b"], Y_spline["c"])
             path.append([x, y])
             
-                
-        for t in np.arange(0.1, 1.1, 0.1):
-            x = spline_equation(t, X_spline["a"], X_spline["b"], X_spline["c"], X_spline["d"])
-            y = spline_equation(t, Y_spline["a"], Y_spline["b"], Y_spline["c"], Y_spline["d"])
+        for t in np.arange(0.5, 1.1, 0.5):
+            x = spline_equation(t, X_spline["a"], X_spline["b"], X_spline["c"])
+            y = spline_equation(t, Y_spline["a"], Y_spline["b"], Y_spline["c"])
             path.append([x, y])
     
     return np.array(path)
@@ -203,10 +184,16 @@ def generate_speed_profile(points:list, max_speed: float) -> list:
         if turn_radius > 0:
             max_turn_speed = np.sqrt(max_centrifugal_force * turn_radius)
             choosen_speed = max_turn_speed if max_turn_speed < max_speed else max_speed
+            # if choosen_speed < 10:
+            #     print(f"veryy slow: {choosen_speed}")
+            #     print(f"turn_radius: {turn_radius}")
+            #     print(f"index: {i}")
             speed_profile.append(choosen_speed)
         else:
             speed_profile.append(max_speed)
-            
+
+    # print(speed_profile)
+    
     # second run
     for i in range(number_of_points - 1, -1, -1):
         if i == number_of_points - 1:
@@ -367,13 +354,13 @@ def generations_to_plot(amount: int, step: int) -> list:
 
 def run():
     start_time = time.time()
-    F = 0.8
-    CR = 0.5
-    max_gen = 50
-    pop_size = 1400
+    F = 0.5
+    CR = 0.3
+    max_gen = 200
+    pop_size = 100
     track_start = 0
     track_end = 25
-    gens_to_plot = generations_to_plot(5, 10)
+    gens_to_plot = generations_to_plot(20, 10)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H%M")
     folder = f"{timestamp} - speed profile gen"
@@ -396,7 +383,11 @@ def run():
     hours, seconds_remain = divmod(time_elapsed, 3600)
     minutes, seconds = divmod(seconds_remain, 60)
 
-    print(f"Melhores parâmetros encontrados: {best_params}")
+    print(f"Melhores waypoints: {best_params[0]}")
+    print(f"Speed profile: {best_params[1]}")
+    print(f"Velocidade mínima: {best_params[1].min()}")
+    print(f"Velocidade máxima: {best_params[1].max()}")
+    print(f"Velocidade média: {best_params[1].mean()}")
     print(f"Menor tempo total encontrada: {best_fitness}")
     print(f"Desvio padrão: {standard_deviation}")
     print(f"Total time elapsed: {int(hours):02}:{int(minutes):02}:{int(seconds):02}")

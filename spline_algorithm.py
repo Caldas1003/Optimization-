@@ -51,23 +51,22 @@ def calculate_parameters_u(waypoints: list, track_start: int, track_end: int) ->
 
     return u
 
-def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
+def build_splines(waypoints: list, checkpoints: list) -> list:
     splines = list()
-    u = calculate_parameters_u(waypoints, track_start, track_end)
 
-    for i in range(track_start, track_end - 1):							
-        can_go_straight = i == track_start
+    for i in range(len(checkpoints) - 1):							
+        can_go_straight = i == 0
         first_derivative_at_t0 = [0, 0]
 
-        X_k, Y_k, Z_k = TRACK.CHECKPOINTS[i][waypoints[i - track_start]]
-        X_k_plus_1, Y_k_plus_1, Z_k_plus_1 = TRACK.CHECKPOINTS[i + 1][waypoints[i + 1 - track_start]]
+        X_k, Y_k, Z_k = TRACK.CHECKPOINTS[checkpoints[i]][waypoints[i]]
+        X_k_plus_1, Y_k_plus_1, Z_k_plus_1 = TRACK.CHECKPOINTS[checkpoints[i + 1]][waypoints[i + 1]]
 
-        if i > track_start:
-            X_k_minus_1, Y_k_minus_1, Z_k_minus_1 = TRACK.CHECKPOINTS[i - 1][waypoints[i - 1 - track_start]]
+        if i > 0:
+            X_k_minus_1, Y_k_minus_1, Z_k_minus_1 = TRACK.CHECKPOINTS[checkpoints[i - 1]][waypoints[i - 1]]
             full_turn_radius = get_turn_radius([X_k_minus_1, Y_k_minus_1], [X_k, Y_k], [X_k_plus_1, Y_k_plus_1])
             can_go_straight = full_turn_radius >= 33 # allows max speed (22.22 m/s)
 
-            previous_spline = splines[i - 1 - track_start]
+            previous_spline = splines[i - 1]
             X_spline, Y_spline = previous_spline
             # t = 1 because the first derivative of the current segment at t=0 should be equal to the first derivative of the previous segment at t=1, same goes for seconds
             first_derivative_at_t0 = [
@@ -87,20 +86,25 @@ def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
     
     return splines
 
-def generate_path(waypoints: list, track_start: int, track_end: int) -> list:
-    splines = build_splines(waypoints, track_start, track_end)
-    # for spline in splines:
-    #      print(spline)
+def generate_path(waypoints: list, checkpoints: list, ds: float = 3) -> list:
+    splines = build_splines(waypoints, checkpoints)
     path = []
 
-    for i in range(track_start, track_end - 1):
-        X_spline, Y_spline = splines[i - track_start]
-        if i == track_start:
-            x = spline_equation(0, X_spline["a"], X_spline["b"], X_spline["c"])
-            y = spline_equation(0, Y_spline["a"], Y_spline["b"], Y_spline["c"])
-            path.append([x, y])
+    for i in range(len(checkpoints) - 1):
+        X_spline, Y_spline = splines[i]
+        x0 = spline_equation(0, X_spline["a"], X_spline["b"], X_spline["c"])
+        y0 = spline_equation(0, Y_spline["a"], Y_spline["b"], Y_spline["c"])
+        x1 = spline_equation(1, X_spline["a"], X_spline["b"], X_spline["c"])
+        y1 = spline_equation(1, Y_spline["a"], Y_spline["b"], Y_spline["c"])
+
+        distance = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
+        steps = np.round(distance / ds, 0)
+        step = 1 / steps
+
+        if i == 0:
+            path.append([x0, y0])
             
-        for t in np.arange(0.5, 1.1, 0.5):
+        for t in np.arange(step, 1.1, step):
             x = spline_equation(t, X_spline["a"], X_spline["b"], X_spline["c"])
             y = spline_equation(t, Y_spline["a"], Y_spline["b"], Y_spline["c"])
             path.append([x, y])
@@ -342,8 +346,8 @@ def calculate_time(points: list, speed_profile: list) -> float:
     
     return total_time
 
-def lapTime(waypoints: list, track_start: int, track_end: int, max_speed: float) -> list:
-    path = generate_path(waypoints, track_start, track_end)
+def lapTime(waypoints: list, checkpoints: list, max_speed: float) -> list:
+    path = generate_path(waypoints, checkpoints)
     speed_profile = generate_speed_profile(path, max_speed)
     time = calculate_time(path, speed_profile)
 
@@ -358,9 +362,10 @@ def run():
     CR = 0.3
     max_gen = 200
     pop_size = 100
-    track_start = 0
-    track_end = 25
+    track_start = 8
+    track_end = 35
     gens_to_plot = generations_to_plot(20, 10)
+    checkpoint_step = 2
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H%M")
     folder = f"{timestamp} - speed profile gen"
@@ -377,6 +382,7 @@ def run():
         track_end=track_end,
         gensToPlot=gens_to_plot,
         folder=folder,
+        checkpoint_step=checkpoint_step,
     )
 
     time_elapsed = time.time() - start_time

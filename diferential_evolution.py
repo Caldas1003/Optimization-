@@ -3,25 +3,26 @@ from typing import Callable
 from numpy.typing import NDArray
 from PistaComAtrito import TRACK
 
-
 def customDifferentialEvolution(
-    func: Callable[[list, int, int, float], float],
+    func: Callable[[list, list, float], float],
     bounds: NDArray[np.int_],
     pop_size=400,
     F=0.8,
     CR=0.9,
     max_generations=100,
-    track_start = 0,
+    track_start =0,
     track_end=200,
     gensToPlot=[100, 200, 300],
-    folder="charts"
+    folder="charts",
+    checkpoint_step=1
 ):
+    checkpoints = pick_checkpoints(track_start, track_end, checkpoint_step)
     waypoints_population = np.random.randint(bounds[0][0], bounds[0][1], (pop_size, track_end - track_start))
-    # middle_of_track = np.ones(track_end - track_start, dtype=int) * 46
-    # waypoints_population[pop_size // 2] = middle_of_track  
+    # bias = np.ones(track_end - track_start, dtype=int) * 99
+    # waypoints_population[pop_size // 2] = bias  
 
     max_speed = bounds[1][1]
-    results = np.array([func(waypoints_population[i], track_start, track_end, max_speed) for i in range(pop_size)], dtype=object)
+    results = np.array([func(waypoints_population[i], checkpoints, max_speed) for i in range(pop_size)], dtype=object)
     lap_times = [result[0].astype(float) for result in results]
     
     best_results = []
@@ -54,7 +55,7 @@ def customDifferentialEvolution(
 
             waypoints_offspring = generateOffspring(waypoints_trial_vector, waypoints_parent, CR)
 
-            offspring_result, offspring_path, offspring_speeds = func(waypoints_offspring, track_start, track_end, max_speed)
+            offspring_result, offspring_path, offspring_speeds = func(waypoints_offspring, checkpoints, max_speed)
             offspring_is_fitter = np.all(offspring_result < lap_times[i])
             if offspring_is_fitter:
                 waypoints_population[i] = waypoints_offspring
@@ -69,7 +70,7 @@ def customDifferentialEvolution(
     standard_deviation = np.std(lap_times)
     TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {max_generations} - teste continuo.png", path, speed_profile, track_start, track_end, checkpoints=True)
 
-    return (best_waypoints, speed_profile), best_fitness, standard_deviation, (best_results, std_deviations)
+    return (np.array(best_waypoints), np.array(speed_profile)), best_fitness, standard_deviation, (best_results, std_deviations)
 
 
 def generateTrialVector(population, parent_index, F, bounds):
@@ -110,3 +111,12 @@ def generateOffspring(trial_vector, parent, CR):
             for j in range(len(parent))
         ]
     )
+
+def pick_checkpoints(track_start: int, track_end: int, step: int):
+    checkpoints = []
+    for i in range(track_start, track_end, step):
+        if i + step > track_end:
+            i = track_end
+        checkpoints.append(i)
+
+    return checkpoints

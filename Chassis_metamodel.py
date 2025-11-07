@@ -106,7 +106,7 @@ class FullModel:
                 Iflex=None, Itorc=None,                           # Inércias do chassi
                 W=None, Lt=None, Ld=None, hcg=None,               # Unidade de comprimento
                 tire_coef=None,params=None,                       # Parâmetros de pneu
-                slip=None, rear_ratio=None, front_ratio=None,     # Entradas de controle do carro
+                Fx_total=0, Fy_total=0,                           # *** MODIFICADO: Entradas de Força Total
                 Ix=None, Iz=None, Iy=None
                 ):                                      
         
@@ -154,11 +154,15 @@ class FullModel:
         self.Lt = Lt     # Distância entre eixo traseiro e CG [m]
         self.Ld = Ld     # Distância entre eixo dianteiro e CG [m]
 
-        # Entradas de controle do carro
-        self.slip_angle = slip                  # Ângulo de esterçamento [Graus]
-        self.rear_slip_angle = slip/10          # Ângulo de esterçamento traseiro [Graus]
-        self.rear_slip_ratio = rear_ratio       # Taxa de escorregamento traseira [Adm]
-        self.front_slip_ratio = front_ratio     # Taxa de escorregamento dianteira [Adm]
+        # *** MODIFICADO: Entradas de controle do carro
+        self.Fx_total = Fx_total # Força Longitudinal Total Aplicada [N]
+        self.Fy_total = Fy_total # Força Lateral Total Aplicada [N]
+
+        # *** REMOVIDO: Entradas de slip
+        # self.slip_angle = slip                  
+        # self.rear_slip_angle = slip/10          
+        # self.rear_slip_ratio = rear_ratio       
+        # self.front_slip_ratio = front_ratio     
 
 
         self.tire = TireModel(
@@ -195,9 +199,9 @@ class FullModel:
         yaw, yawdot = y[14], y[15]       # Yaw
         pitch, pitchdot = y[16], y[17]   # Pitch(Guinada)
         roll, rolldot = y[18], y[19]     # Roll(Rolagem)
-        Fz_de, Fz_dd, Fz_te, Fz_td = y[20], y[21], y[22], y[23]
+        Fz_de, Fz_dd, Fz_te, Fz_td = y[20], y[21], y[22], y[23] # Cargas verticais do passo anterior
         x_car, y_car = y[24], y[25]
-        vx_car, vy_car = y[25], y[27]
+        vx_car, vy_car = y[26], y[27]  # *** CORREÇÃO DE ÍNDICE: vx_car era y[25], mudei para y[26]
 
         # -------------------------------
         # Inputs de estrada
@@ -272,26 +276,47 @@ class FullModel:
         )
 
         " ------------------------------- Metamodelo de Dinâmica------------------------------- "
+        
         # ----------------------------
-        # Forças dos pneus
+        # Forças dos pneus (MODIFICADO)
         # ----------------------------
+        
+        # Adicionamos uma pequena constante (epsilon) para evitar divisão por zero
+        # caso as cargas iniciais sejam zero.
+        Fz_total_state = Fz_de + Fz_dd + Fz_te + Fz_td + 1e-6
 
-        Fx_de = self.tire.longitudinal_force(Fz_de, self.front_slip_ratio)
-        Fx_dd = self.tire.longitudinal_force(Fz_dd, self.front_slip_ratio)
-        Fx_te = self.tire.longitudinal_force(Fz_te, self.rear_slip_ratio)
-        Fx_td = self.tire.longitudinal_force(Fz_td, self.rear_slip_ratio)
+        # Decompõe a força total (Fx, Fy) proporcionalmente à carga vertical (Fz) em cada roda
+        # Os valores Fz_de, Fz_dd, etc., vêm do vetor de estado (y[20]...y[23]) do passo anterior
+        Fx_de = self.Fx_total * (Fz_de / Fz_total_state)
+        Fx_dd = self.Fx_total * (Fz_dd / Fz_total_state)
+        Fx_te = self.Fx_total * (Fz_te / Fz_total_state)
+        Fx_td = self.Fx_total * (Fz_td / Fz_total_state)
 
-        Fy_de = self.tire.lateral_force(Fz_de, self.slip_angle)
-        Fy_dd = self.tire.lateral_force(Fz_dd, self.slip_angle)
-        Fy_te = self.tire.lateral_force(Fz_te, self.rear_slip_angle)
-        Fy_td = self.tire.lateral_force(Fz_td, self.rear_slip_angle)
+        Fy_de = self.Fy_total * (Fz_de / Fz_total_state)
+        Fy_dd = self.Fy_total * (Fz_dd / Fz_total_state)
+        Fy_te = self.Fy_total * (Fz_te / Fz_total_state)
+        Fy_td = self.Fy_total * (Fz_td / Fz_total_state)
 
-        Fz_dd, Fz_de, Fz_td, Fz_te = self.dynamics.load_transfer(
+        # --- Bloco de código anterior (Pacejka) REMOVIDO ---
+        # Fx_de = self.tire.longitudinal_force(Fz_de, self.front_slip_ratio)
+        # Fx_dd = self.tire.longitudinal_force(Fz_dd, self.front_slip_ratio)
+        # Fx_te = self.tire.longitudinal_force(Fz_te, self.rear_slip_ratio)
+        # Fx_td = self.tire.longitudinal_force(Fz_td, self.rear_slip_ratio)
+        #
+        # Fy_de = self.tire.lateral_force(Fz_de, self.slip_angle)
+        # Fy_dd = self.tire.lateral_force(Fz_dd, self.slip_angle)
+        # Fy_te = self.tire.lateral_force(Fz_te, self.rear_slip_angle)
+        # Fy_td = self.tire.lateral_force(Fz_td, self.rear_slip_angle)
+        # --- Fim do Bloco Removido ---
+
+        # Esta função (inalterada) calcula os *novos* valores de Fz com base nas forças Fx/Fy decompostas
+        Fz_dd_new, Fz_de_new, Fz_td_new, Fz_te_new = self.dynamics.load_transfer(
                                     Fz_static_front=self.Fz_static_front, Fz_static_rear=self.Fz_static_rear,
                                     Fx_de=Fx_de, Fx_dd=Fx_dd, Fx_te=Fx_te, Fx_td=Fx_td,
                                     Fy_de=Fy_de, Fy_dd=Fy_dd, Fy_te=Fy_te, Fy_td=Fy_td)
+        
         # ----------------------------
-        # Acelerações Angulares
+        # Acelerações Angulares (Inalterado)
         # ----------------------------
 
         yawddot = self.dynamics.yaw_acc(Fx_de=Fx_de, Fx_dd=Fx_dd, Fx_te=Fx_te, Fx_td=Fx_td, Fy_de=Fy_de, Fy_dd=Fy_dd, Fy_te=Fy_te, Fy_td=Fy_td)
@@ -315,7 +340,7 @@ class FullModel:
             yawdot, yawddot,
             pitchdot, pitchddot,
             rolldot, rollddot,
-            Fz_de, Fz_dd, Fz_te, Fz_td,
+            Fz_de_new, Fz_dd_new, Fz_te_new, Fz_td_new,  # Retorna os *novos* Fz calculados
             vx_car, vy_car,
             x_acc_car, y_acc_car
         ]
@@ -343,7 +368,7 @@ def get_simulation_time(t_start, t_end, dt):
 # =============================================================================
 def run_simulation():
     
-    t_span, t_eval = get_simulation_time(t_start=0.0, t_end=10.0, dt=0.00001)
+    t_span, t_eval = get_simulation_time(t_start=0.0, t_end=30.0, dt=0.0001)
 
     # Parâmetros geométricos [m]
     Ld, Lt, W = 1.4, 1.1, 0.5
@@ -354,24 +379,30 @@ def run_simulation():
     tempo_inicio_direito = 1.0
     tempo_inicio_esquerdo = 3.0
 
+    # Valores de exemplo para as novas entradas de força
+    Forca_Longitudinal_Total = 2000 # [N]
+    Forca_Lateral_Total = 800      # [N]
+
     # Chassis (exemplo de parâmetros; ajuste conforme quiser)
     chassis = FullModel(
         Mc=280, Mst=25, Msd=20, Distribution=0.5,
         Kte=5e5, Ktd=5e5, Kde=5e5, Kdd=5e5,
         Kpte=2e4, Kptd=2e4, Kpde=2e4, Kpdd=2e4,
-        Kf=3.01e7, Kt=1.6e7,
+        Kf=3.01e3, Kt=1.6e3,
         Cte=5e3, Ctd=5e3, Cde=3e4, Cdd=3e3,
-        Cphi=2e5, Ctheta=2e5,
+        Cphi=2e7, Ctheta=2e7,
         Iflex=5e5, Itorc=5e5,
         W=W, Lt=Lt, Ld=Ld, hcg=0.3,
         tire_coef=1.45, params=(0.3336564873588197, 1.627, 1.0, 931.405, 366.493),
-        slip=9, rear_ratio=0.25, front_ratio=0.10,
+        Fx_total=Forca_Longitudinal_Total, 
+        Fy_total=Forca_Lateral_Total,
         Ix=1e5, Iz=1e3, Iy=1e5
     )
 
     funcoes_entrada = chassis.gerar_funcoes_entrada(tempo_inicio_direito, tempo_inicio_esquerdo,
                                                     altura_degrau_d, altura_degrau_e)
     
+    # Valores iniciais para Fz
     Fz_de0 = 600
     Fz_dd0 = 600
     Fz_te0 = 800
@@ -383,15 +414,6 @@ def run_simulation():
     
     # Extraindo soluções individuais de cada variável do sol
     t = sol.t  # vetor de tempo
-
-    # Exemplo de mapeamento (adapte conforme sua ordem de estados):
-    # 0 → roda dianteira esquerda
-    # 1 → roda dianteira direita
-    # 2 → roda traseira esquerda
-    # 3 → roda traseira direita
-    # 4 → torção do chassi
-    # 5 → flexão do chassi
-    # 6 → deslocamento global do carro
 
     solucao_roda_de = sol.y[0]    # dianteira esquerda
     solucao_roda_dd = sol.y[2]    # dianteira direita
@@ -406,91 +428,145 @@ def run_simulation():
     solucao_roll    = sol.y[16]   # rolagem
     solucao_pitch   = sol.y[18]   # arfagem
 
+    # Extração das soluções de Fz
+    solucao_Fz_de = sol.y[20]
+    solucao_Fz_dd = sol.y[21]
+    solucao_Fz_te = sol.y[22]
+    solucao_Fz_td = sol.y[23]
+
     # Deslocamentos e velocidades finais do carro
     solucao_x       = sol.y[24]
     solucao_y       = sol.y[25]
     solucao_vx      = sol.y[26]
     solucao_vy      = sol.y[27]
+    
+    # =======================================================================
+    # *** NOVO: Painel de Controle dos Gráficos ***
+    # =======================================================================
+    # Mude para True o que você quiser plotar
+    plot_deslocamento_rodas = True
+    plot_dinamica_chassi = True
+    plot_yaw = False
+    plot_roll = False
+    plot_pitch = False
+    plot_deslocamento_x = False
+    plot_deslocamento_y = False
+    plot_velocidade_x = False
+    plot_velocidade_y = False
+    plot_cargas_fz = True
+    # =======================================================================
 
-    plt.plot(t, solucao_roda_de, label="Roda Dianteira Esquerda")
-    plt.plot(t, solucao_roda_dd, label="Roda Dianteira Direita")
-    plt.plot(t, solucao_roda_te, label="Roda Traseira Esquerda")
-    plt.plot(t, solucao_roda_td, label="Roda Traseira Direita")
-    plt.legend()
-    plt.xlabel("Tempo [s]")
-    plt.ylabel("Deslocamento [m]")
-    plt.show()
 
-    plt.plot(t, solucao_torcao, label="Torção do Chassi")
-    plt.plot(t, solucao_flexao, label="Flexão do Chassi")
-    plt.plot(t, solucao_carro, label="Deslocamento Global do Carro")
-    plt.legend()
-    plt.xlabel("Tempo [s]")
-    plt.ylabel("Deslocamento [m]")
-    plt.show()
+    # --- Gráficos agora são condicionais ---
+
+    if plot_deslocamento_rodas:
+        plt.figure()
+        plt.plot(t, solucao_roda_de, label="Roda Dianteira Esquerda")
+        plt.plot(t, solucao_roda_dd, label="Roda Dianteira Direita")
+        plt.plot(t, solucao_roda_te, label="Roda Traseira Esquerda")
+        plt.plot(t, solucao_roda_td, label="Roda Traseira Direita")
+        plt.legend()
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Deslocamento [m]")
+        plt.title("Deslocamento Vertical das Rodas")
+        plt.grid(True)
+
+    if plot_dinamica_chassi:
+        plt.figure()
+        plt.plot(t, solucao_torcao, label="Torção do Chassi (Phi)")
+        plt.plot(t, solucao_flexao, label="Flexão do Chassi (Theta)")
+        plt.plot(t, solucao_carro, label="Deslocamento Global do Carro (Xc)")
+        plt.legend()
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Deslocamento [m ou rad]")
+        plt.title("Dinâmica do Chassi")
+        plt.grid(True)
 
     # Yaw
-    plt.figure()
-    plt.plot(t, solucao_yaw, label="Yaw (guinada)")
-    plt.xlabel("Tempo [s]")
-    plt.ylabel("Ângulo [rad]")
-    plt.title("Resposta em Yaw")
-    plt.legend()
-    plt.grid(True)
+    if plot_yaw:
+        plt.figure()
+        plt.plot(t, solucao_yaw, label="Yaw (guinada)")
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Ângulo [rad]")
+        plt.title("Resposta em Yaw")
+        plt.legend()
+        plt.grid(True)
 
     # Roll
-    plt.figure()
-    plt.plot(t, solucao_roll, label="Roll (rolagem)")
-    plt.xlabel("Tempo [s]")
-    plt.ylabel("Ângulo [rad]")
-    plt.title("Resposta em Roll")
-    plt.legend()
-    plt.grid(True)
+    if plot_roll:
+        plt.figure()
+        plt.plot(t, solucao_roll, label="Roll (rolagem)")
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Ângulo [rad]")
+        plt.title("Resposta em Roll")
+        plt.legend()
+        plt.grid(True)
 
     # Pitch
-    plt.figure()
-    plt.plot(t, solucao_pitch, label="Pitch (arfagem)")
-    plt.xlabel("Tempo [s]")
-    plt.ylabel("Ângulo [rad]")
-    plt.title("Resposta em Pitch")
-    plt.legend()
-    plt.grid(True)
+    if plot_pitch:
+        plt.figure()
+        plt.plot(t, solucao_pitch, label="Pitch (arfagem)")
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Ângulo [rad]")
+        plt.title("Resposta em Pitch")
+        plt.legend()
+        plt.grid(True)
 
-    # Deslocamento
-    plt.figure()
-    plt.plot(t, solucao_x, label="Deslocamento em X")
-    plt.xlabel("Tempo [s]")
-    plt.ylabel("Distância [m]")
-    plt.title("Deslocamento do carro")
-    plt.legend()
-    plt.grid(True)
+    # Deslocamento X
+    if plot_deslocamento_x:
+        plt.figure()
+        plt.plot(t, solucao_x, label="Deslocamento em X")
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Distância [m]")
+        plt.title("Deslocamento do carro")
+        plt.legend()
+        plt.grid(True)
 
-    # Deslocamento
-    plt.figure()
-    plt.plot(t, solucao_y, label="Deslocamento em Y")
-    plt.xlabel("Tempo [s]")
-    plt.ylabel("Distância [m]")
-    plt.title("Deslocamento do carro")
-    plt.legend()
-    plt.grid(True)
+    # Deslocamento Y
+    if plot_deslocamento_y:
+        plt.figure()
+        plt.plot(t, solucao_y, label="Deslocamento em Y")
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Distância [m]")
+        plt.title("Deslocamento do carro")
+        plt.legend()
+        plt.grid(True)
 
-    # Deslocamento
-    plt.figure()
-    plt.plot(t, solucao_vx, label="Velocidade em X")
-    plt.xlabel("Tempo [s]")
-    plt.ylabel("Velocidade [m/s]")
-    plt.title("Velocidade do carro")
-    plt.legend()
-    plt.grid(True)
+    # Velocidade X
+    if plot_velocidade_x:
+        plt.figure()
+        plt.plot(t, solucao_vx, label="Velocidade em X")
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Velocidade [m/s]")
+        plt.title("Velocidade do carro")
+        plt.legend()
+        plt.grid(True)
 
-    # Deslocamento
-    plt.figure()
-    plt.plot(t, solucao_vy, label="Velocidade em Y")
-    plt.xlabel("Tempo [s]")
-    plt.ylabel("Velocidade [m/s]")
-    plt.title("Velocidade do carro")
-    plt.legend()
-    plt.grid(True)
+    # Velocidade Y
+    if plot_velocidade_y:
+        plt.figure()
+        plt.plot(t, solucao_vy, label="Velocidade em Y")
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Velocidade [m/s]")
+        plt.title("Velocidade do carro")
+        plt.legend()
+        plt.grid(True)
+
+    # Cargas Verticais (Fz)
+    if plot_cargas_fz:
+        plt.figure()
+        plt.plot(t, solucao_Fz_de, label="Fz Dianteira Esquerda")
+        plt.plot(t, solucao_Fz_dd, label="Fz Dianteira Direita")
+        plt.plot(t, solucao_Fz_te, label="Fz Traseira Esquerda")
+        plt.plot(t, solucao_Fz_td, label="Fz Traseira Direita")
+        plt.xlabel("Tempo [s]")
+        plt.ylabel("Carga Vertical [N]")
+        plt.title("Resposta de Carga Vertical (Fz) nos Pneus")
+        plt.legend()
+        plt.grid(True)
+
+    # Mostra TODOS os gráficos que foram ativados
+    plt.show()
 
 # =============================================================================
 # Rodar a simulação

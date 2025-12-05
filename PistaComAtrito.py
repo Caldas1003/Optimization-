@@ -225,7 +225,7 @@ class PistaComAtrito:
                     ax.plot(tracado_2D[i][0], tracado_2D[i][1], 'o', color='red')
 
         segments = np.concatenate([tracado_2D[:-1, None], tracado_2D[1:, None]], axis=1)
-        lc = LineCollection(segments, cmap='viridis', norm=plt.Normalize(speed_profile.min(), speed_profile.max()))
+        lc = LineCollection(segments, cmap='viridis', norm=plt.Normalize(0, 22.22)) # TODO: PASS MAX AND MIN SPEEDS
         lc.set_array(speed_profile[:-1])
         lc.set_linewidth(0.8)
 
@@ -244,6 +244,41 @@ class PistaComAtrito:
         ax.grid(True)
         # ax.set_xlim(-90, 10)
         # ax.set_ylim(-250, 10)
+        ax.legend()
+        
+        plt.savefig(saveAs)
+        plt.close()
+
+    def plotar_tracado_pontual(self, saveAs: str, path: list, speed_profile: list, track_start=0, track_end=200, checkpoints=False):
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        
+        X_esq, Y_esq, Z_esq = zip(*self.esquerda)
+        X_dir, Y_dir, Z_dir = zip(*self.direita)
+
+        tracado_X = []
+        tracado_Y = []
+
+        for point in path:
+            tracado_X.append(point[0])
+            tracado_Y.append(point[1])
+                
+        if checkpoints:
+            for i in range(track_start, track_end):
+                ax.plot([X_esq[i], X_dir[i]], [Y_esq[i], Y_dir[i]], color='gray')
+        
+            # for i in range(len(path)):
+            #     if i % 10 == 0:
+            #         ax.plot(tracado_2D[i][0], tracado_2D[i][1], 'o', color='red')
+
+        ax.plot(tracado_X, tracado_Y, 'o', color='blue')
+        ax.plot(X_esq[track_start:track_end], Y_esq[track_start:track_end], color='red', label="Borda Esquerda", linestyle='--', linewidth=0.5)
+        ax.plot(X_dir[track_start:track_end], Y_dir[track_start:track_end], color='red', label="Borda Direita", linestyle='--', linewidth=0.5)
+        
+        ax.set_xlabel('X (metros)')
+        ax.set_ylabel('Y (metros)')
+        ax.set_title('Exibição do traçado na pista')
+        ax.grid(True)
         ax.legend()
         
         plt.savefig(saveAs)

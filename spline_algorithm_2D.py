@@ -11,7 +11,7 @@ import os
 from Pista import TRACK
 from diferential_evolution import customDifferentialEvolution
 
-def compute_smoothness_penalty(waypoints, weight=1.25, threshold=0.02):
+def compute_smoothness_penalty(waypoints, weight=1.25, threshold=0.05):
     penalty = 0.0
     n = len(waypoints)
 
@@ -130,118 +130,115 @@ def penalty_yaw_rate(speed_profile, headings, ds_list, max_yaw_rate=0.8, w=1.5):
 """
 
 def get_car_polygon(x, y, heading, L=2.0, W=1.2):
+     """
+     Retorna os 4 vértices do carro (retângulo) baseado na posição e orientação.
+     (x, y) = centro do carro
+     heading = ângulo em radianos
+     L = comprimento do carro
+     W = largura do carro
+     """
+     half_L = L / 2.0
+     half_W = W / 2.0
+     # pontos em coordenadas locais
+     local_points = np.array([
+         [ half_L,  half_W],
+         [ half_L, -half_W],
+         [-half_L, -half_W],
+         [-half_L,  half_W]
+     ])
+     # rotação
+     R = np.array([
+         [np.cos(heading), -np.sin(heading)],
+         [np.sin(heading),  np.cos(heading)]
+     ])
+     # aplicar rotação e translação
+     global_points = (R @ local_points.T).T + np.array([x, y])
+     return global_points
+
+def collision_penalty(path, track, L=2.0, W=1.2, penalty_weight=5.0, step=2):
     """
-    Retorna os 4 vértices do carro (retângulo) baseado na posição e orientação.
-    (x, y) = centro do carro
-    heading = ângulo em radianos
-    L = comprimento do carro
-    W = largura do carro
-    """
-    half_L = L / 2.0
-    half_W = W / 2.0
-
-    # pontos em coordenadas locais
-    local_points = np.array([
-        [ half_L,  half_W],
-        [ half_L, -half_W],
-        [-half_L, -half_W],
-        [-half_L,  half_W]
-    ])
-
-    # rotação
-    R = np.array([
-        [np.cos(heading), -np.sin(heading)],
-        [np.sin(heading),  np.cos(heading)]
-    ])
-
-    # aplicar rotação e translação
-    global_points = (R @ local_points.T).T + np.array([x, y])
-    return global_points
-
-def car_inside_track_fast(x, y, heading, idx, track, L, W):
-    """
-    Verifica se o retângulo do carro está dentro da pista.
-    x, y -> posição do centro
-    heading -> ângulo [rad]
-    idx -> índice aproximado na pista (usar incremental para eficiência)
-    track -> objeto com .esquerda e .direita
-    L, W -> dimensões do carro
-    """
-    car_poly = get_car_polygon(x, y, heading, L, W)
-
-    # pontos da pista nas bordas esquerda/direita
-    left = np.array(track.esquerda[idx])
-    right = np.array(track.direita[idx])
-
-    # vetor normal (perpendicular à borda da pista no ponto idx)
-    vdir = np.array([
-        track.X_suave[(idx + 1) % len(track.X_suave)] - track.X_suave[idx],
-        track.Y_suave[(idx + 1) % len(track.Y_suave)] - track.Y_suave[idx]
-    ])
-    vdir /= np.linalg.norm(vdir)
-    normal = np.array([-vdir[1], vdir[0]])
-
-    # checar cada canto do carro
-    for px, py in car_poly:
-        p = np.array([px, py])
-
-        # projeção lateral em relação ao centro
-        d_left = np.dot(p - left, normal)
-        d_right = np.dot(right - p, normal)
-
-        if d_left < 0 or d_right < 0:  # saiu da faixa
-            return False
-    return True
-
-def collision_penalty(path, track, L=2.0, W=1.2, penalty_value=10,step=2):
-    """
-    Penaliza colisões do carro (modelo retangular 2D) ao longo do path,
-    acumulando a penalidade para cada ponto de colisão.
-    
-    path -> lista/array de pontos [x,y]
-    track -> objeto PistaComAtrito
-    L, W -> dimensões do carro (m)
-    penalty_value -> valor de penalidade por colisão
+    Penalidade robusta usando KDTree para encontrar o ponto exato da pista.
     """
     total_penalty = 0.0
-    n = len(track.X_suave)
+    
+    # Se a pista ainda não tem a árvore KD construída, construímos agora (cache local)
+    if not hasattr(track, 'tree'):
+        points_track = np.column_stack((track.X_suave, track.Y_suave))
+        track.tree = cKDTree(points_track)
 
-    idx = 0  # começa no primeiro ponto da pista
-    for i in range(0, len(path) - 1, step):
-        x, y = path[i]
-        x_next, y_next = path[i + 1]
-        heading = np.arctan2(y_next - y, x_next - x)
+    # 1. Encontrar os índices da pista correspondentes a cada ponto do path
+    # Isso corrige o problema de dessincronização
+    # path[::step] pega os pontos pulando de 'step' em 'step'
+    path_subsampled = path[::step]
+    distances, track_indices = track.tree.query(path_subsampled)
 
-        # aproxima o índice (não precisa recalcular do zero toda vez)
-        idx = (idx + 1) % n
+    n_track = len(track.X_suave)
+
+    for i, (x, y) in enumerate(path_subsampled):
+        # Índice real na pista mais próximo do carro
+        idx = track_indices[i]
+        
+        # Pega o próximo ponto para calcular o vetor direção da pista
+        idx_next = (idx + 1) % n_track
+        
+        # Vetor da pista (tangente)
+        p_track = np.array([track.X_suave[idx], track.Y_suave[idx]])
+        p_track_next = np.array([track.X_suave[idx_next], track.Y_suave[idx_next]])
+        
+        tangent = p_track_next - p_track
+        norm = np.linalg.norm(tangent)
+        if norm < 1e-9: continue
+        tangent /= norm
+        
+        # Vetor Normal (perpendicular à pista) rotacionando 90 graus
+        normal = np.array([-tangent[1], tangent[0]])
+
+        # Define bordas esquerda e direita baseadas no ponto central idx
+        # Estamos projetando as bordas no vetor normal para saber a "largura" permitida
+        p_left = np.array(track.esquerda[idx][:2])
+        p_right = np.array(track.direita[idx][:2])
+        
+        # Distância projetada das bordas em relação ao centro
+        # (Quanto "para a esquerda" e "para a direita" podemos ir)
+        dist_left_bound = np.dot(p_left - p_track, normal)
+        dist_right_bound = np.dot(p_right - p_track, normal)
+        
+        # Garante que left é positivo e right negativo (ou vice-versa dependendo do sentido)
+        # Para facilitar, vamos usar max e min
+        upper_bound = max(dist_left_bound, dist_right_bound)
+        lower_bound = min(dist_left_bound, dist_right_bound)
+
+        # Calcular polígono do carro
+        # Precisamos do heading (ângulo). Se i < len-1, calculamos pelo path
+        if i < len(path_subsampled) - 1:
+            dx = path_subsampled[i+1][0] - x
+            dy = path_subsampled[i+1][1] - y
+            heading = np.arctan2(dy, dx)
+        else:
+            # Último ponto, repete o anterior
+            heading = 0 # Ou mantém o anterior se salvar em variável
 
         car_poly = get_car_polygon(x, y, heading, L, W)
-        left = np.array(track.esquerda[idx][:2])   
-        right = np.array(track.direita[idx][:2])   
-        vdir = np.array([
-            track.X_suave[(idx + 1) % n] - track.X_suave[idx],
-            track.Y_suave[(idx + 1) % n] - track.Y_suave[idx]
-        ])
-        vdir = np.array([
-            track.X_suave[(idx + 1) % n] - track.X_suave[idx],
-            track.Y_suave[(idx + 1) % n] - track.Y_suave[idx]
-        ])
 
-        norm = np.linalg.norm(vdir)
-        if norm < 1e-9:  # evita divisão por zero
-            return False  # ou continue o loop (dependendo da lógica)
-        vdir /= norm
-        normal = np.array([-vdir[1], vdir[0]])
-
+        # Verifica cada vértice do carro
         for px, py in car_poly:
-            p = np.array([px, py])
-            d_left = np.dot(p - left, normal)
-            d_right = np.dot(right - p, normal)
+            p_car = np.array([px, py])
+            
+            # Projeta a posição do vértice do carro na normal da pista
+            # Isso nos diz quão longe do centro o carro está (lateralmente)
+            lateral_offset = np.dot(p_car - p_track, normal)
 
-            if d_left < 0:  # passou da borda esquerda
-                total_penalty += penalty_value * abs(d_left)
-            elif d_right < 0:  # passou da borda direita
-                total_penalty += penalty_value * abs(d_right)
+            # Verifica violação
+            violation = 0.0
+            
+            if lateral_offset > upper_bound:
+                violation = lateral_offset - upper_bound
+            elif lateral_offset < lower_bound:
+                violation = lower_bound - lateral_offset # valor positivo
+            
+            if violation > 0:
+                # A penalidade ao quadrado ajuda o otimizador a corrigir erros grandes mais rápido
+                total_penalty += penalty_weight * (violation ** 2)
 
     return total_penalty
 
@@ -249,27 +246,22 @@ def collision_penalty(path, track, L=2.0, W=1.2, penalty_value=10,step=2):
     FIM DA IMPLEMENTAÇÃO DO MODELO 2D
 """
 
-def spline_equation(t: float, a: float, b: float, c: float, d: float) -> float:
-    return a*(t**3) + b*(t**2) + c*t + d
+def spline_equation(t: float, a: float, b: float, c: float) -> float:
+    return a*(t**2) + b*t + c
 
 def first_derivative(t: float, a: float, b: float, c: float) -> float:
-    return 3*a*(t**2) + 2*b*t + c
-
-def second_derivative(t: float, a: float, b: float) -> float:
-    return 6*a*t + 2*b
+    return 2*a*t + b
 
 def calculate_coeficients(
     spline_at_t0: float,
     spline_at_t1: float,
     spline_first_derivative_at_t0: float,
-    spline_first_derivative_at_t1: float,
 ) -> dict:
-    d = spline_at_t0
-    c = spline_first_derivative_at_t0
-    b = 3*(spline_at_t1 - spline_at_t0) - 2*spline_first_derivative_at_t0 - spline_first_derivative_at_t1
-    a = -2*(spline_at_t1 - spline_at_t0) + spline_first_derivative_at_t0 + spline_first_derivative_at_t1
+    c = spline_at_t0
+    b = spline_first_derivative_at_t0
+    a = spline_at_t1 - b - c
 
-    return {"a": a, "b": b, "c": c, "d": d}
+    return { "a": a, "b": b, "c": c }
 
 def catmull_rom_tangent(P_k_plus_1: float, P_k_minus_1: float, u_k_plus_1: float, u_k_minus_1: float, tau = 0.25):
     """k is relative to the Knot (point) you want the parameter u for"""
@@ -295,84 +287,23 @@ def calculate_parameters_u(waypoints: list, track_start: int, track_end: int) ->
         u.append([u_x_k, u_y_k])
 
     return u
-"""
-# Com essa versão meu codigo roda normal
-def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
+
+def build_splines(waypoints: list, checkpoints: list) -> list:
     splines = list()
-    u = calculate_parameters_u(waypoints, track_start, track_end)
-    for i in range(track_start, track_end - 1):							
+
+    for i in range(len(checkpoints) - 1):							
+        can_go_straight = i == 0
         first_derivative_at_t0 = [0, 0]
-        first_derivative_at_t1 = [0, 0]
 
-        X_k, Y_k, Z_k = TRACK.CHECKPOINTS[i][waypoints[i - track_start]]
-        X_k_plus_1, Y_k_plus_1, Z_k_plus_1 = TRACK.CHECKPOINTS[i + 1][waypoints[i + 1 - track_start]]
-        if i < track_end - 2:
-            X_k_plus_2, Y_k_plus_2, Z_k_plus_2 = TRACK.CHECKPOINTS[i + 2][waypoints[i + 2 - track_start]]
+        X_k, Y_k, Z_k = TRACK.CHECKPOINTS[checkpoints[i]][waypoints[i]]
+        X_k_plus_1, Y_k_plus_1, Z_k_plus_1 = TRACK.CHECKPOINTS[checkpoints[i + 1]][waypoints[i + 1]]
 
-            u_x_k = u[i - track_start][0]
-            u_y_k = u[i - track_start][1]
-            u_x_k_plus_2 = u[i - track_start + 2][0]
-            u_y_k_plus_2 = u[i - track_start + 2][1]
-
-            first_derivative_at_t1 = [
-                catmull_rom_tangent(X_k_plus_2, X_k, u_x_k_plus_2, u_x_k),
-                catmull_rom_tangent(Y_k_plus_2, Y_k, u_y_k_plus_2, u_y_k)
-            ]
-
-        if i > track_start:
-            previous_spline = splines[i - 1 - track_start]
-            X_spline, Y_spline = previous_spline
-            # t = 1 because the first derivative of the current segment at t=0 should be equal to the first derivative of the previous segment at t=1, same goes for seconds
-            first_derivative_at_t0 = [
-                    first_derivative(1, X_spline["a"], X_spline["b"], X_spline["c"]),
-                    first_derivative(1, Y_spline["a"], Y_spline["b"], Y_spline["c"]),
-            ]
-
-        # print(f"i: {i}")
-        # print(f"X_k = {X_k}, Y_k = {Y_k}")
-        # print(f"X_k_plus_1 = {X_k_plus_1}, Y_k = {Y_k_plus_1}")
-        # print(f"first derivatives (t=0) = {first_derivative_at_t0}")
-        # print(f"first derivatives (t=1) = {first_derivative_at_t1}")
-        # print("---------------------------------------------------------------")
-
-        X_coefs = calculate_coeficients(X_k, X_k_plus_1, first_derivative_at_t0[0], first_derivative_at_t1[0])
-        Y_coefs = calculate_coeficients(Y_k, Y_k_plus_1, first_derivative_at_t0[1], first_derivative_at_t1[1])
-            
-        splines.append([X_coefs, Y_coefs])
-    
-    return splines
-"""
-
-def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
-    splines = list()
-    u = calculate_parameters_u(waypoints, track_start, track_end)
-
-    for i in range(track_start, track_end - 1):							
-        can_go_straight = i == track_start
-        first_derivative_at_t0 = [0, 0]
-        first_derivative_at_t1 = [0, 0]
-
-        X_k, Y_k, Z_k = TRACK.CHECKPOINTS[i][waypoints[i - track_start]]
-        X_k_plus_1, Y_k_plus_1, Z_k_plus_1 = TRACK.CHECKPOINTS[i + 1][waypoints[i + 1 - track_start]]
-        if i < track_end - 2 and not can_go_straight:
-            X_k_plus_2, Y_k_plus_2, Z_k_plus_2 = TRACK.CHECKPOINTS[i + 2][waypoints[i + 2 - track_start]]
-
-            u_x_k = u[i - track_start][0]
-            u_y_k = u[i - track_start][1]
-            u_x_k_plus_2 = u[i - track_start + 2][0]
-            u_y_k_plus_2 = u[i - track_start + 2][1]
-
-            first_derivative_at_t1 = [
-                catmull_rom_tangent(X_k_plus_2, X_k, u_x_k_plus_2, u_x_k),
-                catmull_rom_tangent(Y_k_plus_2, Y_k, u_y_k_plus_2, u_y_k)
-            ]
-
-        if i > track_start:
-            X_k_minus_1, Y_k_minus_1, Z_k_minus_1 = TRACK.CHECKPOINTS[i - 1][waypoints[i - 1 - track_start]]
+        if i > 0:
+            X_k_minus_1, Y_k_minus_1, Z_k_minus_1 = TRACK.CHECKPOINTS[checkpoints[i - 1]][waypoints[i - 1]]
             full_turn_radius = get_turn_radius([X_k_minus_1, Y_k_minus_1], [X_k, Y_k], [X_k_plus_1, Y_k_plus_1])
             can_go_straight = full_turn_radius >= 33 # allows max speed (22.22 m/s)
 
-            previous_spline = splines[i - 1 - track_start]
+            previous_spline = splines[i - 1]
             X_spline, Y_spline = previous_spline
             # t = 1 because the first derivative of the current segment at t=0 should be equal to the first derivative of the previous segment at t=1, same goes for seconds
             first_derivative_at_t0 = [
@@ -382,33 +313,37 @@ def build_splines(waypoints: list, track_start: int, track_end: int) -> list:
 
         
         if can_go_straight:
-            X_coefs = {"a": 0, "b": 0, "c": (X_k_plus_1 - X_k), "d": X_k}
-            Y_coefs = {"a": 0, "b": 0, "c": (Y_k_plus_1 - Y_k), "d": Y_k}
+            X_coefs = { "a": 0, "b": (X_k_plus_1 - X_k), "c": X_k }
+            Y_coefs = { "a": 0, "b": (Y_k_plus_1 - Y_k), "c": Y_k }
         else:
-            X_coefs = calculate_coeficients(X_k, X_k_plus_1, first_derivative_at_t0[0], first_derivative_at_t1[0])
-            Y_coefs = calculate_coeficients(Y_k, Y_k_plus_1, first_derivative_at_t0[1], first_derivative_at_t1[1])
+            X_coefs = calculate_coeficients(X_k, X_k_plus_1, first_derivative_at_t0[0])
+            Y_coefs = calculate_coeficients(Y_k, Y_k_plus_1, first_derivative_at_t0[1])
             
         splines.append([X_coefs, Y_coefs])
     
     return splines
 
-def generate_path(waypoints: list, track_start: int, track_end: int) -> list:
-    splines = build_splines(waypoints, track_start, track_end)
-    # for spline in splines:
-    #      print(spline)
+def generate_path(waypoints: list, checkpoints: list, ds: float = 3) -> list:
+    splines = build_splines(waypoints, checkpoints)
     path = []
 
-    for i in range(track_start, track_end - 1):
-        X_spline, Y_spline = splines[i - track_start]
-        if i == track_start:
-            x = spline_equation(0, X_spline["a"], X_spline["b"], X_spline["c"], X_spline["d"])
-            y = spline_equation(0, Y_spline["a"], Y_spline["b"], Y_spline["c"], Y_spline["d"])
-            path.append([x, y])
+    for i in range(len(checkpoints) - 1):
+        X_spline, Y_spline = splines[i]
+        x0 = spline_equation(0, X_spline["a"], X_spline["b"], X_spline["c"])
+        y0 = spline_equation(0, Y_spline["a"], Y_spline["b"], Y_spline["c"])
+        x1 = spline_equation(1, X_spline["a"], X_spline["b"], X_spline["c"])
+        y1 = spline_equation(1, Y_spline["a"], Y_spline["b"], Y_spline["c"])
+
+        distance = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
+        steps = max(1.0, np.round(distance / ds, 0))
+        step = 1 / steps
+
+        if i == 0:
+            path.append([x0, y0])
             
-                
-        for t in np.arange(0.1, 1.1, 0.1):
-            x = spline_equation(t, X_spline["a"], X_spline["b"], X_spline["c"], X_spline["d"])
-            y = spline_equation(t, Y_spline["a"], Y_spline["b"], Y_spline["c"], Y_spline["d"])
+        for t in np.arange(step, 1.1, step):
+            x = spline_equation(t, X_spline["a"], X_spline["b"], X_spline["c"])
+            y = spline_equation(t, Y_spline["a"], Y_spline["b"], Y_spline["c"])
             path.append([x, y])
     
     return np.array(path)
@@ -490,10 +425,16 @@ def generate_speed_profile(points:list, max_speed: float) -> list:
         if turn_radius > 0:
             max_turn_speed = np.sqrt(max_centrifugal_force * turn_radius)
             choosen_speed = max_turn_speed if max_turn_speed < max_speed else max_speed
+            # if choosen_speed < 10:
+            #     print(f"veryy slow: {choosen_speed}")
+            #     print(f"turn_radius: {turn_radius}")
+            #     print(f"index: {i}")
             speed_profile.append(choosen_speed)
         else:
             speed_profile.append(max_speed)
-            
+
+    # print(speed_profile)
+    
     # second run
     for i in range(number_of_points - 1, -1, -1):
         if i == number_of_points - 1:
@@ -632,9 +573,9 @@ def calculate_time(points: list, speed_profile: list) -> float:
         acceleration = (following_speed**2 - current_speed**2) / (2*stretch_distance)
 
         stretch_time = (following_speed - current_speed) / acceleration if acceleration != 0 else stretch_distance / current_speed
-        penalty = calculate_angle_penalty(previous_point, current_point, following_point)
+        #penalty = calculate_angle_penalty(previous_point, current_point, following_point)
 
-        total_time += stretch_time + penalty
+        total_time += stretch_time #+ 0.05*penalty
         # print(f"total: {total_time}")
 
         if stretch_time < 0:
@@ -642,16 +583,13 @@ def calculate_time(points: list, speed_profile: list) -> float:
     
     return total_time
 
-def lapTime(waypoints: list, track_start: int, track_end: int, max_speed: float, yaw_rate_limit: float = 0.8) -> list:
-    waypoints = np.array(waypoints, dtype=int)
-    num_pontos_por_checkpoint = len(TRACK.CHECKPOINTS[0])
-    waypoints = np.clip(waypoints, 0, num_pontos_por_checkpoint - 1)
-    path = generate_path(waypoints, track_start, track_end)
+def lapTime(waypoints: list, checkpoints: list, max_speed: float) -> list:
+    path = generate_path(waypoints, checkpoints)
     speed_profile = generate_speed_profile(path, max_speed)
     time = calculate_time(path, speed_profile)
     
                 ### PENALIDADES VELHAS
-    time += compute_smoothness_penalty(waypoints)
+    #time += compute_smoothness_penalty(waypoints)
 
                 ## PENALIDADES NOVAS
     #headings, ds = compute_headings(path)
@@ -783,10 +721,10 @@ def animate_car_on_track_realistic(track, path, speed_profile,
 
 def run():
     start_time = time.time()
-    F = 0.35
-    CR = 0.25
-    max_gen = 300
-    pop_size = 100
+    F = 0.45
+    CR = 0.35
+    max_gen = 1000
+    pop_size = 50
     track_start = 0
     track_end = 200
     num_plots = 10      #quantidade de plots desejados
@@ -809,8 +747,9 @@ def run():
         gensToPlot=gens_to_plot,
         folder=results_dir,
         use_parallel= True,
-        n_jobs= 5,
-        strategy="rand/1/bin"
+        n_jobs= 3,
+        strategy="rand/1/bin",
+        checkpoint_step=2
     )
 
     time_elapsed = time.time() - start_time
@@ -851,8 +790,12 @@ def run():
 
     
     
-    path = generate_path(best_params[0], track_start=0, track_end=len(TRACK.CHECKPOINTS))
-    animate_car_on_track_realistic(TRACK, path, best_params[1], L=2.0, W=1.2,save_as=f"{results_dir}/carro_na_pista.gif")
+    all_checkpoints = list(range(len(TRACK.CHECKPOINTS)))
+    
+    # Pass that list as the second argument
+    path = generate_path(best_params[0], all_checkpoints)
+
+    animate_car_on_track_realistic(TRACK, path, best_params[1], L=2.0, W=1.2, save_as=f"{results_dir}/carro_na_pista.gif")
 
 if __name__ ==   '__main__':
     run()

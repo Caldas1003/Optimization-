@@ -155,6 +155,27 @@ def acceleration_available(speed: float) -> float:
     g = 9.8 # gravity
     return 1.5*g if speed < 15.28 else ((-1.5*g*(speed - 15.28)/6.94) + 1.5*g) # 15.28 m/s = 55 kph
 
+def calculate_parable_half(x_max: float, y_max: float) -> dict:
+    c3 = y_max
+    c2 = 0
+    c1 = - y_max / (x_max**2)
+
+    return {"a": c1, "b": c2, "c": c3}
+
+def generate_gg_diagram(pure_acceleration: float, pure_breaking: float, pure_cornering: float) -> dict:
+    """returns the functions representing the cars gg diagram
+    
+    Keyword arguments:
+    pure_acceleration -- maximum positive value for pure acceleration (m/s²)
+    pure_breaking -- maximum negative value for pure breaking (m/s²)
+    pure_cornering -- maximum absolute value for pure cornering (m/s²)
+    Return: dict with the functions for acceleration and breaking, along with the pure cornering value, keys: 'acceleration', 'breaking', 'cornering'. 
+    """
+    acceleration = calculate_parable_half(pure_cornering, pure_acceleration)
+    breaking = calculate_parable_half(pure_cornering, pure_breaking)
+
+    return {"acceleration": acceleration, "breaking": breaking, "cornering": pure_cornering}
+
 def generate_speed_profile(points:list, max_speed: float) -> list:
     speed_profile = []
     number_of_points = len(points)
@@ -348,6 +369,7 @@ def calculate_time(points: list, speed_profile: list) -> float:
 
 def lapTime(waypoints: list, checkpoints: list, max_speed: float) -> list:
     path = generate_path(waypoints, checkpoints)
+    gg
     speed_profile = generate_speed_profile(path, max_speed)
     time = calculate_time(path, speed_profile)
 

@@ -1,4 +1,5 @@
 from datetime import datetime
+from path import PATH
 import matplotlib.pyplot as plt
 import time
 import numpy as np
@@ -176,15 +177,12 @@ def generate_gg_diagram(pure_acceleration: float, pure_breaking: float, pure_cor
 
     return {"acceleration": acceleration, "breaking": breaking, "cornering": pure_cornering}
 
-def generate_speed_profile(points:list, max_speed: float) -> list:
+def generate_speed_profile(points:list, gg_diagram: dict, max_speed: float) -> list:
     speed_profile = []
     number_of_points = len(points)
-		
     max_speed = np.float64(max_speed)
 
-    g = 9.8  # gravity (9.8 m/s²)
-    max_centrifugal_force = 1.5 * g
-    max_braking = - 1.5 * g
+    max_lateral_acc = gg_diagram['cornering']
 
     # first run
     for i in range(number_of_points):
@@ -201,23 +199,13 @@ def generate_speed_profile(points:list, max_speed: float) -> list:
         following_point = points[following]
         
         turn_radius = get_turn_radius(previous_point, current_point, following_point)
-        # print(f"prev: {waypoints[previous]}")
-        # print(f"curr: {waypoints[current]}")
-        # print(f"follw: {waypoints[following]}")
-        # print(f"radius: {turn_radius}")
 
         if turn_radius > 0:
-            max_turn_speed = np.sqrt(max_centrifugal_force * turn_radius)
+            max_turn_speed = np.sqrt(max_lateral_acc * turn_radius)
             choosen_speed = max_turn_speed if max_turn_speed < max_speed else max_speed
-            # if choosen_speed < 10:
-            #     print(f"veryy slow: {choosen_speed}")
-            #     print(f"turn_radius: {turn_radius}")
-            #     print(f"index: {i}")
             speed_profile.append(choosen_speed)
         else:
             speed_profile.append(max_speed)
-
-    # print(speed_profile)
     
     # second run
     for i in range(number_of_points - 1, -1, -1):
@@ -231,12 +219,13 @@ def generate_speed_profile(points:list, max_speed: float) -> list:
         previous_point = points[previous]
 
         if speed_profile[current] > speed_profile[previous]:
+            max_braking = gg_diagram['breaking']['c'] # should be negative
+            turn_radius = get_turn_radius(previous_point, current_point, following_point)
+            if turn_radius > 0:
+                lateral_acc = speed_profile[previous]**2 / turn_radius
+                max_braking = gg_diagram['breaking']['a']*(lateral_acc**2) + gg_diagram['breaking']['b']*lateral_acc + gg_diagram['breaking']['c'] # should be negative
             stretch_distance = get_stretch_distance(previous_point, current_point)
-            # print(f"stretch_distance: {stretch_distance}")
-            # print(f"max_braking: {max_braking}")
-            # print(f"speed_profile[previous]: {speed_profile[previous]}")
-            # print(f"speed_profile[current]: {speed_profile[current]}")
-            speed = np.sqrt(speed_profile[previous]**2 - 2*stretch_distance*max_braking)
+            speed = np.sqrt(speed_profile[previous]**2 + 2*stretch_distance*max_braking)
             if speed < 0:
                 print("NEGATIVE SPEED")
             speed_profile[current] = speed if speed < max_speed else max_speed
@@ -253,34 +242,14 @@ def generate_speed_profile(points:list, max_speed: float) -> list:
         previous_point = points[previous]
 
         if speed_profile[current] > speed_profile[previous]:
+            max_accelaration = gg_diagram['acceleration']['c']
+            turn_radius = get_turn_radius(previous_point, current_point, following_point)
+            if turn_radius > 0:
+                lateral_acc = speed_profile[previous]**2 / turn_radius
+                max_accelaration = gg_diagram['acceleration']['a']*(lateral_acc**2) + gg_diagram['acceleration']['b']*lateral_acc + gg_diagram['acceleration']['c']
             stretch_distance = get_stretch_distance(previous_point, current_point)
-            # print(f"stretch_distance: {stretch_distance}")
-            # print(f"max_braking: {max_braking}")
-            # print(f"speed_profile[previous]: {speed_profile[previous]}")
-            # print(f"speed_profile[current]: {speed_profile[current]}")
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                acc = acceleration_available(speed_profile[previous])
-
-                if acc > 1.5*9.8:
-                    print(f"acc: {acc}")
-                    print(f"speed prev: {speed_profile[previous]}")
-                    print(f"speed curr: {speed_profile[current]}")
-
-                speed = np.sqrt(speed_profile[previous]**2 + 2*stretch_distance*acc)
-                # print(f"acc: {acc}")
-                # print(f"dist: {stretch_distance}")
-                # print(f"speed_prev: {speed_profile[previous]}")
-                # print(f"speed: {speed}")
-
-                if w:
-                    print(f"Warning: {w[0].message}")
-                    print(f"stretch_distance: {stretch_distance}")
-                    print(f"acc: {acc}")
-                    print(f"speed_profile[previous]: {speed_profile[previous]}")
-                    print(f"speed_profile[current]: {speed_profile[current]}")
-                
-                speed_profile[current] = speed if speed < max_speed else max_speed
+            speed = np.sqrt(speed_profile[previous]**2 + 2*stretch_distance*max_accelaration)
+            speed_profile[current] = speed if speed < max_speed else max_speed
 
     return speed_profile
 
@@ -346,7 +315,7 @@ def calculate_time(points: list, speed_profile: list) -> float:
         current = i
         following = i + 1
 
-        previous_point = points[previous]
+        # previous_point = points[previous]
         current_point = points[current]
         following_point = points[following]
 
@@ -354,12 +323,18 @@ def calculate_time(points: list, speed_profile: list) -> float:
         following_speed = speed_profile[following]
 
         stretch_distance = get_stretch_distance(current_point, following_point)
-        acceleration = (following_speed**2 - current_speed**2) / (2*stretch_distance)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            acceleration = (following_speed**2 - current_speed**2) / (2*stretch_distance)
+            # if w:
+            #     print(f"Warning: {w[0].message}")
+            #     print(f"current_point: {current_point}")
+            #     print(f"following_point: {following_point}")
 
         stretch_time = (following_speed - current_speed) / acceleration if acceleration != 0 else stretch_distance / current_speed
-        penalty = calculate_angle_penalty(previous_point, current_point, following_point)
+        # penalty = calculate_angle_penalty(previous_point, current_point, following_point)
 
-        total_time += stretch_time + penalty
+        total_time += stretch_time
         # print(f"total: {total_time}")
 
         if stretch_time < 0:
@@ -367,13 +342,13 @@ def calculate_time(points: list, speed_profile: list) -> float:
     
     return total_time
 
-def lapTime(waypoints: list, checkpoints: list, max_speed: float) -> list:
-    path = generate_path(waypoints, checkpoints)
-    gg
-    speed_profile = generate_speed_profile(path, max_speed)
+def lapTime(max_speed: float, pure_acceleration: float, pure_breaking: float, pure_cornering: float) -> list:
+    path = np.array(PATH)
+    gg_diagram = generate_gg_diagram(pure_acceleration=pure_acceleration, pure_breaking=pure_breaking, pure_cornering=pure_cornering)
+    speed_profile = generate_speed_profile(path, gg_diagram=gg_diagram, max_speed=max_speed)
     time = calculate_time(path, speed_profile)
 
-    return [time, path, speed_profile]
+    return [time, speed_profile]
 
 def generations_to_plot(amount: int, step: int) -> list:
     return np.arange(1, amount + 1) * step
@@ -387,7 +362,21 @@ def run():
     track_start = 8
     track_end = 35
     gens_to_plot = generations_to_plot(20, 10)
-    checkpoint_step = 2
+    bounds = [
+        [0.4, 0.6], # distribution
+        [2.5e5, 7.5e5], # Kds
+        [2.5e5, 7.5e5], # Kts
+        [1e4, 3e4], # Kpds
+        [1e4, 3e4], # Kpts
+        [1e5, 5e5], # Kf
+        [0.8e5, 2.4e5], # Kt
+        [1e4, 5e4], # Cds
+        [2.5e3, 7.5e3], # Cts
+        [0.9, 1.1], # W
+        [1, 1.2], # Lt
+        [1.2, 1.6], # Ld
+        [0.278, 22.22], # max speed
+    ]
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H%M")
     folder = f"{timestamp} - speed profile gen"
@@ -395,16 +384,13 @@ def run():
 
     best_params, best_fitness, standard_deviation, data = customDifferentialEvolution(
         lapTime,
-        [[0, 99], [0.278, 22.22]],
+        np.array(bounds),
         max_generations=max_gen,
         F=F,
         CR=CR,
         pop_size=pop_size,
-        track_start=track_start,
-        track_end=track_end,
         gensToPlot=gens_to_plot,
-        folder=folder,
-        checkpoint_step=checkpoint_step,
+        folder=folder
     )
 
     time_elapsed = time.time() - start_time

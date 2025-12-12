@@ -103,19 +103,17 @@ class VehicleDynamics:
 
 class FullModel:
     def __init__(self,
-                Mc=0, Mst=None, Msd=None, Distribution=0,
-                Kte=None, Ktd=None, Kde=None, Kdd=None,
-                Kpte=None, Kptd=None, Kpde=None, Kpdd=None,
-                Kf=None, Kt=None,
-                Cte=None, Ctd=None, Cde=None, Cdd=None,
-                Cphi=None, Ctheta=None,
-                Iflex=None, Itorc=None,
-                W=None, Lt=None, Ld=None, hcg=None,
-                tire_coef=None,params=None,
-                Fx_total=0, Fy_total=0,
-                Ix=None, Iz=None, Iy=None,
-                mode=DriveMode.ACCELERATION
-                ):
+        Distribution: float, Kds: float, Kts: float, Kpds: float, Kpts: float, 
+        Kf: float, Kt: float, Cds: float, Cts: float,
+        W: float, Lt: float, Ld: float,
+        Mc=280, Mst=25, Msd=20,
+        Cphi=2e4, Ctheta=2e4,
+        Iflex=5e2, Itorc=5e2, hcg=0.3,
+        tire_coef=1.45,params=(0.3336564873588197, 1.627, 1.0, 931.405, 366.493),
+        Fx_total=0, Fy_total=0,
+        Ix=1e3, Iz=1e3, Iy=1e3,
+        mode=DriveMode.ACCELERATION
+    ):
 
         # Massas e Parâmetros
         self.Mc = Mc
@@ -125,10 +123,13 @@ class FullModel:
         self.Fz_static_rear  = 9.81 * Mc * Distribution/2
         self.Fz_static_front = 9.81 * Mc * (1 - Distribution)/2
 
-        self.Kte, self.Ktd, self.Kde, self.Kdd = Kte, Ktd, Kde, Kdd
-        self.Kpte, self.Kptd, self.Kpde, self.Kpdd = Kpte, Kptd, Kpde, Kpdd
+        self.Kde = self.Kdd = Kds
+        self.Kte = self.Ktd = Kts
+        self.Kpde = self.Kpdd = Kpds
+        self.Kpte = self.Kptd = Kpts
         self.Kf, self.Kt = Kf, Kt
-        self.Cte, self.Ctd, self.Cde, self.Cdd = Cte, Ctd, Cde, Cdd
+        self.Cde = self.Cdd = Cds
+        self.Cte = self.Ctd = Cts
         self.Cphi, self.Ctheta = Cphi, Ctheta
         self.Iflex, self.Itorc = Iflex, Itorc
         self.W, self.Lt, self.Ld = W, Lt, Ld
@@ -393,6 +394,42 @@ class FullModel:
         return {'DE': func_esquerdo, 'DD': func_direito,
                 'TE': func_esquerdo, 'TD': func_direito}
 
+    def __get_initial_state(self):
+        Fz_de0 = self.Fz_static_front / 2
+        Fz_dd0 = self.Fz_static_front / 2
+        Fz_te0 = self.Fz_static_rear / 2
+        Fz_td0 = self.Fz_static_rear / 2
+        y0 = [0,0,0,0,0,0,0,0,
+            0,0, 0,0, 0,0, 0,0, 0,0, 0,0,
+            Fz_de0, Fz_dd0, Fz_te0, Fz_td0,
+            0,0, 0,0]
+        return y0
+
+    def __get_max_acceleration_for_mode(self, mode: DriveMode, test_force: float = 1e6, total_time: float = 10, dt: float = 0.001) -> float:
+        t_span = (0, total_time)
+        t_eval = np.arange(0, total_time+dt, dt)
+
+        road_funcs = self.gerar_funcoes_entrada(1, 1, 1, 1)
+    
+        self.mode = mode
+        self.Fx_total = test_force if mode != DriveMode.CORNERING else 0.0
+        self.Fy_total = test_force if mode == DriveMode.CORNERING else 0.0
+        self.max_ax = self.max_ay = 0.0
+        self.max_Fx_total = self.max_Fy_total = 0.0
+
+        y0 = self.__get_initial_state()
+        solve_ivp(fun=lambda t,y: self.ode_total(t,y,road_funcs),
+                t_span=t_span, y0=y0, t_eval=t_eval, method='LSODA')
+        
+        return self.max_ay if mode == DriveMode.CORNERING else self.max_ax
+
+    def get_acceleration_limits(self) -> tuple[float, float, float]:
+        return self.__get_max_acceleration_for_mode(DriveMode.ACCELERATION), \
+               self.__get_max_acceleration_for_mode(DriveMode.BRAKING), \
+               self.__get_max_acceleration_for_mode(DriveMode.CORNERING)
+
+
+               
 # =============================================================================
 # Utilitários de simulação
 # =============================================================================

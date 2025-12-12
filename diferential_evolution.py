@@ -1,11 +1,13 @@
 import numpy as np
 from typing import Callable
 from numpy.typing import NDArray
-from PistaComAtrito import TRACK
+from Pista import TRACK
+from metamodelm import FullModel, DriveMode
+from caminho import PATH
 
 def customDifferentialEvolution(
-    func: Callable[[list, list, float], float],
-    bounds: NDArray[np.int_],
+    func_objective: Callable[[float, float, float, float], tuple[float, float]],
+    bounds: NDArray[NDArray[float]],
     pop_size=400,
     F=0.8,
     CR=0.9,
@@ -13,25 +15,41 @@ def customDifferentialEvolution(
     track_start =0,
     track_end=200,
     gensToPlot=[100, 200, 300],
-    folder="charts",
-    checkpoint_step=1
+    folder="charts"
 ):
-    checkpoints = pick_checkpoints(track_start, track_end, checkpoint_step)
-    waypoints_population = np.random.randint(bounds[0][0], bounds[0][1], (pop_size, track_end - track_start))
-    # bias = np.ones(track_end - track_start, dtype=int) * 99
-    # waypoints_population[pop_size // 2] = bias  
+    population = np.array([
+        [
+            np.random.uniform(bounds[0][0], bounds[0][1]), # distribution
+            np.random.uniform(bounds[1][0], bounds[1][1]), # Kds
+            np.random.uniform(bounds[2][0], bounds[2][1]), # Kts
+            np.random.uniform(bounds[3][0], bounds[3][1]), # Kpds
+            np.random.uniform(bounds[4][0], bounds[4][1]), # Kpts
+            np.random.uniform(bounds[5][0], bounds[5][1]), # Kf
+            np.random.uniform(bounds[6][0], bounds[6][1]), # Kt
+            np.random.uniform(bounds[7][0], bounds[7][1]), # Cds
+            np.random.uniform(bounds[8][0], bounds[8][1]), # Cts
+            np.random.uniform(bounds[9][0], bounds[9][1]), # W
+            np.random.uniform(bounds[10][0], bounds[10][1]), # Lt
+            np.random.uniform(bounds[11][0], bounds[11][1]), # Ld
+        ]
+        for i in range(pop_size)
+    ])
 
-    max_speed = bounds[1][1]
-    results = np.array([func(waypoints_population[i], checkpoints, max_speed) for i in range(pop_size)], dtype=object)
+    max_speed = bounds[12][1]
+    results = np.array([
+        func_objective(
+            max_speed, 
+            *FullModel(*individual).get_acceleration_limits()
+        ) for individual in population
+    ], dtype=object)
     lap_times = [result[0].astype(float) for result in results]
     
     best_results = []
     std_deviations = []
-
+    path = np.array(PATH)
     for gen in range(max_generations):
         if gen in gensToPlot:
             best_idx = np.argmin(lap_times)
-            path = results[best_idx][1]
             speed_profile = results[best_idx][2]
             TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {gen} - teste continuo.png", path, speed_profile, track_start, track_end)
 
@@ -49,28 +67,30 @@ def customDifferentialEvolution(
             break
 
         for i in range(pop_size):
-            waypoints_parent = waypoints_population[i]
+            parent = population[i]
 
-            waypoints_trial_vector = [np.round(waypoint_index).astype(int) for waypoint_index in generateTrialVector(waypoints_population, i, F, bounds[0])]
+            trial_vector = [np.round(waypoint_index).astype(int) for waypoint_index in generateTrialVector(population, i, F, bounds)]
 
-            waypoints_offspring = generateOffspring(waypoints_trial_vector, waypoints_parent, CR)
+            offspring = generateOffspring(trial_vector, parent, CR)
 
-            offspring_result, offspring_path, offspring_speeds = func(waypoints_offspring, checkpoints, max_speed)
+            offspring_result, offspring_speeds = func_objective(
+                max_speed,
+                *FullModel(*offspring).get_acceleration_limits(),
+            )
             offspring_is_fitter = np.all(offspring_result < lap_times[i])
             if offspring_is_fitter:
-                waypoints_population[i] = waypoints_offspring
+                population[i] = offspring
                 lap_times[i] = offspring_result
-                results[i] = [offspring_result, offspring_path, offspring_speeds]
+                results[i] = [offspring_result, offspring_speeds]
 
     best_idx = np.argmin(lap_times)
-    best_waypoints = waypoints_population[best_idx]
+    best_parameters = population[best_idx]
     best_fitness = lap_times[best_idx]
-    path = results[best_idx][1]
-    speed_profile = results[best_idx][2]
+    speed_profile = results[best_idx][1]
     standard_deviation = np.std(lap_times)
     TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {max_generations} - teste continuo.png", path, speed_profile, track_start, track_end, checkpoints=True)
 
-    return (np.array(best_waypoints), np.array(speed_profile)), best_fitness, standard_deviation, (best_results, std_deviations)
+    return (np.array(best_parameters), np.array(speed_profile)), best_fitness, standard_deviation, (best_results, std_deviations)
 
 
 def generateTrialVector(population, parent_index, F, bounds):
@@ -81,7 +101,7 @@ def generateTrialVector(population, parent_index, F, bounds):
     )
 
     trial_vector = np.clip(
-        trial_vector, bounds[0], bounds[1]
+        trial_vector, bounds[12:, 0], bounds[12:, 1]
     )  # enforce bounds
 
     return trial_vector

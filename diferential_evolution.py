@@ -2,7 +2,8 @@ import numpy as np
 from typing import Callable
 from numpy.typing import NDArray
 from PistaComAtrito import TRACK
-from Chassis_metamodel import FullModel, DriveMode
+from Chassis_metamodel import FullModel
+from path import PATH
 
 def customDifferentialEvolution(
     func_objective: Callable[[float, float, float, float], tuple[float, float]],
@@ -11,8 +12,8 @@ def customDifferentialEvolution(
     F=0.8,
     CR=0.9,
     max_generations=100,
-    track_start =0,
-    track_end=200,
+    track_start=0,
+    track_end=100,
     gensToPlot=[100, 200, 300],
     folder="charts"
 ):
@@ -49,9 +50,8 @@ def customDifferentialEvolution(
     for gen in range(max_generations):
         if gen in gensToPlot:
             best_idx = np.argmin(lap_times)
-            path = results[best_idx][1]
-            speed_profile = results[best_idx][2]
-            TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {gen} - teste continuo.png", path, speed_profile, track_start, track_end)
+            speed_profile = results[best_idx][1]
+            TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {gen} - teste continuo.png", PATH, speed_profile, track_start, track_end)
 
         print(f"Geração {gen + 1}", end="\r")
 
@@ -69,7 +69,7 @@ def customDifferentialEvolution(
         for i in range(pop_size):
             parent = population[i]
 
-            trial_vector = [np.round(waypoint_index).astype(int) for waypoint_index in generateTrialVector(population, i, F, bounds)]
+            trial_vector = generateTrialVector(population, i, F, bounds)
 
             offspring = generateOffspring(trial_vector, parent, CR)
 
@@ -88,7 +88,7 @@ def customDifferentialEvolution(
     best_fitness = lap_times[best_idx]
     speed_profile = results[best_idx][1]
     standard_deviation = np.std(lap_times)
-    TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {max_generations} - teste continuo.png", path, speed_profile, track_start, track_end, checkpoints=True)
+    TRACK.plotar_tracado_na_pista_com_velocidade(f"{folder}/tracado geração {max_generations} - teste continuo.png", PATH, speed_profile, track_start, track_end)
 
     return (np.array(best_parameters), np.array(speed_profile)), best_fitness, standard_deviation, (best_results, std_deviations)
 
@@ -101,7 +101,7 @@ def generateTrialVector(population, parent_index, F, bounds):
     )
 
     trial_vector = np.clip(
-        trial_vector, bounds[12:, 0], bounds[12:, 1]
+        trial_vector, bounds[:12, 0], bounds[:12, 1]
     )  # enforce bounds
 
     return trial_vector

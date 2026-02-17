@@ -27,31 +27,6 @@ def calculate_coeficients(
 
     return { "a": a, "b": b, "c": c }
 
-def catmull_rom_tangent(P_k_plus_1: float, P_k_minus_1: float, u_k_plus_1: float, u_k_minus_1: float, tau = 0.25):
-    """k is relative to the Knot (point) you want the parameter u for"""
-    return (1 - tau)*(P_k_plus_1 - P_k_minus_1)/(u_k_plus_1 - u_k_minus_1)
-
-def parameter_u(P_k_minus_1: float, P_k: float, u_k_minus_1: float, alpha = 0.5):
-    """k is relative to the Knot (point) you want the parameter u for"""
-    return u_k_minus_1 + np.abs(P_k - P_k_minus_1)**alpha
-
-def calculate_parameters_u(waypoints: list, track_start: int, track_end: int) -> list:
-    u = list()
-
-    for i in range(track_start, track_end):
-        u_x_k = 0
-        u_y_k = 0
-
-        if i > track_start:
-            X_k_minus_1, Y_k_minus_1, Z_k_minus_1 = TRACK.CHECKPOINTS[i - 1][waypoints[i - track_start - 1]]
-            X_k, Y_k, Z_k = TRACK.CHECKPOINTS[i][waypoints[i - track_start]]
-            u_x_k = parameter_u(X_k_minus_1, X_k, u[i - track_start - 1][0])
-            u_y_k = parameter_u(Y_k_minus_1, Y_k, u[i - track_start - 1][1])
-
-        u.append([u_x_k, u_y_k])
-
-    return u
-
 def build_splines(waypoints: list, checkpoints: list) -> list:
     splines = list()
 

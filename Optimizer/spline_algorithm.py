@@ -6,8 +6,8 @@ import numpy as np
 import warnings
 import os
 
+from differencial_evolution import customDifferentialEvolution
 from PistaComAtrito import TRACK
-from diferential_evolution import customDifferentialEvolution
 
 
 def spline_equation(t: float, a: float, b: float, c: float) -> float:

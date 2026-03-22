@@ -2,7 +2,6 @@ from path import PATH
 
 import numpy as np
 import warnings
-import os
 
 from track import TRACK
 

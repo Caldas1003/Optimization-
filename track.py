@@ -3,7 +3,6 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from scipy.interpolate import CubicSpline
 from scipy.spatial import cKDTree
-from scipy.interpolate import splprep, splev
 import os
 
 

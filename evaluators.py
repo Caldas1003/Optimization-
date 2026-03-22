@@ -131,13 +131,22 @@ def calculate_parable_half(x_max: float, y_max: float) -> dict:
     return {"a": c1, "b": c2, "c": c3}
 
 def generate_gg_diagram(pure_acceleration: float, pure_breaking: float, pure_cornering: float) -> dict:
-    """returns the functions representing the cars gg diagram
+    """
+    returns the functions representing the cars gg diagram
     
-    Keyword arguments:
-    pure_acceleration -- maximum positive value for pure acceleration (m/s²)
-    pure_breaking -- maximum negative value for pure breaking (m/s²)
-    pure_cornering -- maximum absolute value for pure cornering (m/s²)
-    Return: dict with the functions for acceleration and breaking, along with the pure cornering value, keys: 'acceleration', 'breaking', 'cornering'. 
+    Parameters
+    ----------
+    pure_acceleration : float
+        maximum positive value for pure acceleration (m/s²)
+    pure_breaking : float
+        maximum negative value for pure breaking (m/s²)
+    pure_cornering : float 
+        maximum absolute value for pure cornering (m/s²)
+    
+    Returns
+    -------
+    dict : 
+        functions for acceleration and breaking, along with the pure cornering value, keys: 'acceleration', 'breaking', 'cornering'. 
     """
     acceleration = calculate_parable_half(pure_cornering, pure_acceleration)
     breaking = calculate_parable_half(pure_cornering, pure_breaking)
@@ -179,11 +188,13 @@ def generate_speed_profile(points:list, gg_diagram: dict, max_speed: float) -> l
         if i == number_of_points - 1:
             continue
 
+        following = i - 1
         current = i
         previous = i + 1
 
         current_point = points[current]
         previous_point = points[previous]
+        following_point = points[following]
 
         if speed_profile[current] > speed_profile[previous]:
             max_braking = gg_diagram['breaking']['c'] # should be negative
@@ -204,9 +215,11 @@ def generate_speed_profile(points:list, gg_diagram: dict, max_speed: float) -> l
 
         current = i
         previous = i - 1
+        following = i + 1
 
         current_point = points[current]
         previous_point = points[previous]
+        following_point = points[following]
 
         if speed_profile[current] > speed_profile[previous]:
             max_accelaration = gg_diagram['acceleration']['c']
@@ -544,20 +557,21 @@ def lapTime(max_speed: float, pure_acceleration: float, pure_breaking: float, pu
     path = np.array(PATH)
     gg_diagram = generate_gg_diagram(pure_acceleration=pure_acceleration, pure_breaking=pure_breaking, pure_cornering=pure_cornering)
     speed_profile = generate_speed_profile(path, gg_diagram=gg_diagram, max_speed=max_speed)
-    (   distribution,    Kds, Kts,    Kpds, Kpts,    Kf, Kt,    Cds, Cts,    W, Lt, Ld) = individual
+    (distribution, Kds, Kts, Kpds, Kpts, Kf, Kt, Cds, Cts, W, Lt, Ld) = individual
     params = {
-    "distribution": distribution,
-    "Kds": Kds,
-    "Kts": Kts,
-    "Kpds": Kpds,
-    "Kpts": Kpts,
-    "Kf": Kf,
-    "Kt": Kt,
-    "Cds": Cds,
-    "Cts": Cts,
-    "W": W,
-    "Lt": Lt,
-    "Ld": Ld,}
+        "distribution": distribution,
+        "Kds": Kds,
+        "Kts": Kts,
+        "Kpds": Kpds,
+        "Kpts": Kpts,
+        "Kf": Kf,
+        "Kt": Kt,
+        "Cds": Cds,
+        "Cts": Cts,
+        "W": W,
+        "Lt": Lt,
+        "Ld": Ld
+    }
 
     #load_transfer = {
     #"lat_front": 0.5,

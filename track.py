@@ -141,7 +141,7 @@ class PistaComAtrito:
             left_point = (X_left[i], Y_left[i], Z_left[i])
             right_point = (X_right[i], Y_right[i], Z_right[i])
 
-            num_points = 10
+            num_points = 100
             t = np.linspace(0, 1, num_points)
             waypoints = np.outer(1 - t, left_point) + np.outer(
                 t, right_point

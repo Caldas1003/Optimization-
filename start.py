@@ -99,21 +99,7 @@ def run():
     track_start = 0
     track_end = 200
     gens_to_plot = generations_to_plot(20, 10)
-    bounds = [
-        [0.4, 0.6],         # distribution
-        [1.5e4, 6.5e4],     # Rigidez da mola dianteira
-        [1.5e4, 6.5e4],     # Kts
-        [9.0e4, 1.5e5],     # Kpds
-        [9.0e4, 1.5e5],     # Kpts
-        [1e5, 5e7],         # Kf
-        [0.8e5, 2.4e7],     # Kt
-        [1.0e3, 5.0e3],     # Cds
-        [1.0e3, 5.0e3],     # Cts
-        [0.9, 1.1],         # W
-        [1, 1.2],           # Lt
-        [1.2, 1.6],         # Ld
-        [0.278, 22.22],     # max speed
-    ]
+    checkpoint_step = 2
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H%M")
     folder = f"{timestamp} - speed profile gen"
@@ -121,33 +107,34 @@ def run():
 
     best_params, best_fitness, standard_deviation, data = customDifferentialEvolution(
         lapTime,
-        np.array(bounds),
+        bounds=[[0, 99], [0.278, 22.22]],
         max_generations=max_gen,
         F=F,
         CR=CR,
         pop_size=pop_size,
-        track_start=0,
-        track_end=200,
+        track_start=track_start,
+        track_end=track_end,
         gensToPlot=gens_to_plot,
-        folder=folder
+        folder=folder,
+        checkpoint_step=checkpoint_step,
     )
 
     time_elapsed = time.time() - start_time
     hours, seconds_remain = divmod(time_elapsed, 3600)
     minutes, seconds = divmod(seconds_remain, 60)
 
-    save_results(
-        best_params=best_params,
-        best_fitness=best_fitness,
-        standard_deviation=standard_deviation,
-        max_gen=max_gen,
-        pop_size=pop_size,
-        F=F,
-        CR=CR,
-        elapsed_time=(hours, minutes, seconds),
-        time_stamp=timestamp,
-        folder_path=folder
-    )
+    # save_results(
+    #     best_params=best_params,
+    #     best_fitness=best_fitness,
+    #     standard_deviation=standard_deviation,
+    #     max_gen=max_gen,
+    #     pop_size=pop_size,
+    #     F=F,
+    #     CR=CR,
+    #     elapsed_time=(hours, minutes, seconds),
+    #     time_stamp=timestamp,
+    #     folder_path=folder
+    # )
     print(f"Melhores parametros: {best_params[0]}")
     print(f"Speed profile: {best_params[1]}")
     print(f"Velocidade mínima: {best_params[1].min()}")

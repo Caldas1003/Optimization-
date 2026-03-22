@@ -70,7 +70,8 @@ def generate_path(waypoints: list, checkpoints: list, ds: float = 3) -> list:
         y1 = spline_equation(1, Y_spline["a"], Y_spline["b"], Y_spline["c"])
 
         distance = np.sqrt((x1 - x0)**2 + (y1 - y0)**2)
-        steps = np.round(distance / ds, 0)
+        steps_calc = np.round(distance / ds, 0)
+        steps = steps_calc if steps_calc > 0 else 1
         step = 1 / steps
 
         if i == 0:
@@ -185,7 +186,7 @@ def generate_speed_profile(points:list, gg_diagram: dict, max_speed: float) -> l
     
     # second run
     for i in range(number_of_points - 1, -1, -1):
-        if i == number_of_points - 1:
+        if i == 0 or i == len(points) - 1:
             continue
 
         following = i - 1
@@ -210,7 +211,7 @@ def generate_speed_profile(points:list, gg_diagram: dict, max_speed: float) -> l
 
     # third run
     for i in range(number_of_points):
-        if i == 0:
+        if i == 0 or i == len(points) - 1:
             continue
 
         current = i
@@ -558,11 +559,5 @@ def lapTime(
     
     time = calculate_time(path, speed_profile)
 
-    return time
+    return time, path, speed_profile
 
-def lapTime(waypoints: list, checkpoints: list, max_speed: float) -> list:
-    path = generate_path(waypoints, checkpoints)
-    speed_profile = generate_speed_profile(path, max_speed)
-    time = calculate_time(path, speed_profile)
-
-    return [time, path, speed_profile]

@@ -1,8 +1,8 @@
 import numpy as np
 from typing import Callable
 from numpy.typing import NDArray
-from PistaComAtrito import TRACK
-from Chassis_metamodel import FullModel
+from track import TRACK
+from metamodel import FullModel
 from path import PATH
 
 def customDifferentialEvolution(

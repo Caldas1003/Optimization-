@@ -1,13 +1,10 @@
-from datetime import datetime
-from caminho import PATH
-import matplotlib.pyplot as plt
-import time
+from path import PATH
+
 import numpy as np
 import warnings
 import os
 
-from Pista import TRACK
-from diferential_evolutionm import customDifferentialEvolution
+from track import TRACK
 
 
 def spline_equation(t: float, a: float, b: float, c: float) -> float:
@@ -26,31 +23,6 @@ def calculate_coeficients(
     a = spline_at_t1 - b - c
 
     return { "a": a, "b": b, "c": c }
-
-def catmull_rom_tangent(P_k_plus_1: float, P_k_minus_1: float, u_k_plus_1: float, u_k_minus_1: float, tau = 0.25):
-    """k is relative to the Knot (point) you want the parameter u for"""
-    return (1 - tau)*(P_k_plus_1 - P_k_minus_1)/(u_k_plus_1 - u_k_minus_1)
-
-def parameter_u(P_k_minus_1: float, P_k: float, u_k_minus_1: float, alpha = 0.5):
-    """k is relative to the Knot (point) you want the parameter u for"""
-    return u_k_minus_1 + np.abs(P_k - P_k_minus_1)**alpha
-
-def calculate_parameters_u(waypoints: list, track_start: int, track_end: int) -> list:
-    u = list()
-
-    for i in range(track_start, track_end):
-        u_x_k = 0
-        u_y_k = 0
-
-        if i > track_start:
-            X_k_minus_1, Y_k_minus_1, Z_k_minus_1 = TRACK.CHECKPOINTS[i - 1][waypoints[i - track_start - 1]]
-            X_k, Y_k, Z_k = TRACK.CHECKPOINTS[i][waypoints[i - track_start]]
-            u_x_k = parameter_u(X_k_minus_1, X_k, u[i - track_start - 1][0])
-            u_y_k = parameter_u(Y_k_minus_1, Y_k, u[i - track_start - 1][1])
-
-        u.append([u_x_k, u_y_k])
-
-    return u
 
 def build_splines(waypoints: list, checkpoints: list) -> list:
     splines = list()
@@ -351,97 +323,266 @@ def calculate_time(points: list, speed_profile: list) -> float:
 
     return total_time
 
-def lapTime(max_speed: float, pure_acceleration: float, pure_breaking: float, pure_cornering: float) -> list:
+def physical_penalties(params, load_transfer=None):
+    """
+    Penalidades físicas e relacionais para FSAE SEM aerodinâmica.
+    Retorna:
+        total, penalties, interactions, load_penalties
+    """
+
+    # ==============================================================
+    # Funções auxiliares
+    # ==============================================================
+
+    def soft_penalty(x, xmin=None, xmax=None, scale=1.0):
+        p = 0.0
+        if xmin is not None and x < xmin:
+            p += ((xmin - x) / xmin)**2 * scale
+        if xmax is not None and x > xmax:
+            p += ((x - xmax) / xmax)**2 * scale
+        return p
+
+    def ratio_penalty(r, rmin, rmax, scale=1.0):
+        if r < rmin:
+            return ((rmin - r) / rmin)**2 * scale
+        if r > rmax:
+            return ((r - rmax) / rmax)**2 * scale
+        return 0.0
+
+    # ==============================================================
+    # Extração dos parâmetros
+    # ==============================================================
+
+    dist = params["distribution"]     # fração 
+
+    Kf_susp = params["Kds"]            # suspensão dianteira
+    Kr_susp = params["Kts"]            # suspensão traseira
+
+    Cf = params["Cds"]                 # amortecimento dianteiro
+    Cr = params["Cts"]                 # amortecimento traseiro
+
+    Kp = 0.5 * (params["Kpds"] + params["Kpts"])  # pneus
+
+    Kf_chassi = params["Kf"]           # flexão
+    Kt_chassi = params["Kt"]           # torção
+
+    W  = params["W"]                   # bitola
+    Lt = params["Lt"]                  # entre-eixos traseiro
+    Ld = params["Ld"]                  # entre-eixos dianteiro
+
+    penalties = {}
+    interactions = {}
+    load_penalties = {}
+
+    # ==============================================================
+    # 1️⃣ Penalidades individuais
+    # ==============================================================
+    
+    ### RESOLVIDAS PELOS BOUNDS DO OTIMIZADOR ###
+
+    # penalties["distribution"] = soft_penalty(dist, 0.45, 0.55, scale=4)
+
+    # penalties["spring_front"] = soft_penalty(Kf_susp, 2.5e5, 7.5e5, scale=2)
+    # penalties["spring_rear"]  = soft_penalty(Kr_susp, 2.5e5, 7.5e5, scale=2)
+
+    # penalties["damping_front"] = soft_penalty(Cf, 1e4, 5e4, scale=1.5)
+    # penalties["damping_rear"]  = soft_penalty(Cr, 2.5e3, 7.5e3, scale=1.5)
+
+    # penalties["tire_stiffness"] = soft_penalty(Kp, 1e4, 3e4, scale=1.5)
+
+    # penalties["chassis_flex"]    = soft_penalty(Kf_chassi, 1e6, 3e7, scale=3)
+    # penalties["chassis_torsion"] = soft_penalty(Kt_chassi, 8e2, 2.4e7, scale=3)
+
+    # penalties["track_width"]      = soft_penalty(W, 0.9, 1.1, scale=1)
+    # penalties["wheelbase_front"]  = soft_penalty(Ld, 1.2, 1.6, scale=1)
+    # penalties["wheelbase_rear"]   = soft_penalty(Lt, 1.0, 1.2, scale=1)
+
+    # ==============================================================
+    # 2️⃣ Penalidades RELACIONAIS (núcleo do modelo)
+    # ==============================================================
+
+    # Distribuição de massa × rigidez de suspensão
+    interactions["mass_vs_spring_balance"] = ratio_penalty(
+        (Kf_susp / Kr_susp),
+        (dist / (1 - dist)) * 0.8,
+        (dist / (1 - dist)) * 1.25,
+        scale=6
+    )
+
+    # Gradiente de subesterço (frente levemente mais rígida)
+    interactions["understeer_bias"] = ratio_penalty(
+        Kf_susp / Kr_susp,
+        0.95, 1.30,
+        scale=5
+    )
+
+    # Frequência natural frente × traseira (adimensional)
+    interactions["freq_balance"] = ratio_penalty(
+        np.sqrt(Kf_susp / Kr_susp),
+        0.9, 1.15,
+        scale=5
+    )
+
+    # Suspensão × pneu
+    interactions["spring_vs_tire_front"] = ratio_penalty(
+        Kf_susp / Kp,
+        0.6, 2,
+        scale=3
+    )
+
+    interactions["spring_vs_tire_rear"] = ratio_penalty(
+        Kr_susp / Kp,
+        0.6, 2,
+        scale=3
+    )
+
+    # Chassi × suspensão (modo estrutural)
+    interactions["chassis_vs_susp"] = ratio_penalty(
+        Kf_chassi / (Kf_susp + Kr_susp),
+        10, 500,
+        scale=2
+    )
+
+    # Torção × rigidez ao rolamento
+    roll_susp = (Kf_susp + Kr_susp) * (W**2) / 4
+
+    interactions["torsion_vs_roll"] = ratio_penalty(
+        Kt_chassi / roll_susp,
+        5, 100,
+        scale=6
+    )
+
+    # Bitola × rigidez total (transferência de carga)
+    interactions["track_vs_stiffness"] = ratio_penalty(
+        (Kf_susp + Kr_susp) * W,
+        2e5, 1.2e6,
+        scale=4
+    )
+
+    # Geometria longitudinal × distribuição de massa
+    interactions["wheelbase_vs_distribution"] = ratio_penalty(
+        (Ld / (Ld + Lt)) / dist,
+        0.85, 1.15,
+        scale=5
+    )
+
+    # Amortecimento × mola (escala física)
+
+    # Estimativa de massa suspensa por canto (ajuste conforme seu carro)
+    m_car_total = 300.0 # kg (com piloto)
+    m_unsprung = 40.0   # kg (total 4 rodas)
+    m_suspended = m_car_total - m_unsprung
+
+    m_front_corner = (m_suspended * dist) / 2
+    m_rear_corner  = (m_suspended * (1 - dist)) / 2
+
+    zeta_front = Cf / (2 * np.sqrt(m_front_corner * Kf_susp))
+    zeta_rear  = Cr / (2 * np.sqrt(m_rear_corner * Kr_susp))
+
+    interactions["damping_ratio_front"] = ratio_penalty(zeta_front, 0.5, 0.9, scale=10)
+    interactions["damping_ratio_rear"]  = ratio_penalty(zeta_rear, 0.5, 0.9, scale=10)
+
+    # ==============================================================
+    # 3️⃣ Penalidades por transferência de carga (opcional)
+    # ==============================================================
+
+    # if load_transfer is not None:
+    #     load_penalties["lat_front"] = soft_penalty(
+    #         load_transfer["lat_front"], 0.0, 0.65, scale=2
+    #     )
+    #     load_penalties["lat_rear"] = soft_penalty(
+    #         load_transfer["lat_rear"], 0.0, 0.65, scale=2
+    #     )
+    #     load_penalties["long_front"] = soft_penalty(
+    #         load_transfer["long_front"], 0.0, 0.7, scale=2
+    #     )
+    #     load_penalties["long_rear"] = soft_penalty(
+    #         load_transfer["long_rear"], 0.0, 0.7, scale=2
+    #     )
+
+    # ==============================================================
+    # 4️⃣ Penalidade total
+    # ==============================================================
+
+# Soma ponderada (pesos que você definiu)
+    total_individual = 1.0 * sum(penalties.values())
+    total_interactions = 2.0 * sum(interactions.values())
+    total_load = 1.5 * sum(load_penalties.values())
+
+    penalty_raw = total_individual + total_interactions + total_load
+
+    
+    
+    penalty_normalized = penalty_raw / (1.0 + penalty_raw)
+
+    return penalty_normalized, penalties, interactions, load_penalties  
+
+def print_penalty_report(penalties, interactions, load_penalties, threshold=1e-4):
+    """
+    Imprime um relatório detalhado das penalidades ativas.
+    threshold: valor mínimo para considerar a penalidade relevante (filtra ruídos).
+    """
+    print("\n" + "="*60)
+    print(f"{'VIOLAÇÃO':<35} | {'PENALIDADE':<10} | {'STATUS'}")
+    print("-" * 60)
+
+    # Junta tudo em um único dicionário para análise
+    all_data = {**penalties, **interactions, **load_penalties}
+    
+    # Ordena da maior penalidade para a menor
+    sorted_penalties = sorted(all_data.items(), key=lambda item: item[1], reverse=True)
+    
+    active_count = 0
+    for name, value in sorted_penalties:
+        if value > threshold:
+            active_count += 1
+            # Formatação visual para gravidade
+            severity = "CRÍTICO" if value > 10 else "ALTO" if value > 1 else "Médio" if value > 0.1 else "Baixo"
+            print(f"{name:<35} | {value:10.4f} | {severity}")
+
+    if active_count == 0:
+        print(f"{'Nenhuma penalidade significativa encontrada!':^60}")
+    
+    print("="*60 + "\n")
+
+def lapTime(max_speed: float, pure_acceleration: float, pure_breaking: float, pure_cornering: float, individual, debug=False) -> list:
     path = np.array(PATH)
     gg_diagram = generate_gg_diagram(pure_acceleration=pure_acceleration, pure_breaking=pure_breaking, pure_cornering=pure_cornering)
     speed_profile = generate_speed_profile(path, gg_diagram=gg_diagram, max_speed=max_speed)
+    (   distribution,    Kds, Kts,    Kpds, Kpts,    Kf, Kt,    Cds, Cts,    W, Lt, Ld) = individual
+    params = {
+    "distribution": distribution,
+    "Kds": Kds,
+    "Kts": Kts,
+    "Kpds": Kpds,
+    "Kpts": Kpts,
+    "Kf": Kf,
+    "Kt": Kt,
+    "Cds": Cds,
+    "Cts": Cts,
+    "W": W,
+    "Lt": Lt,
+    "Ld": Ld,}
+
+    #load_transfer = {
+    #"lat_front": 0.5,
+    #"lat_rear": 0.5,
+    #"long_front": 0.5,
+    #"long_rear": 0.5,}
+
+    penalty_norm, pens, inters, loads = physical_penalties(params)
+    
+    # Lógica de Fitness
     time = calculate_time(path, speed_profile)
+    
+    # Se o debug estiver ligado OU se a penalidade for muito alta (o carro está "quebrado")
+    if debug or penalty_norm > 0.5: 
+        print(f"DEBUG: Tempo calculado: {time:.2f}s | Penalidade Norm: {penalty_norm:.2%}")
+        # Chama nosso relatório
+        print_penalty_report(pens, inters, loads)
 
-    return [time, speed_profile]
+    # Aplica a penalidade no tempo (como estava no seu comentário)
+    # Se penalty_norm for 0.5 (50%), o tempo aumenta em 50%.
+    fitness = time * (1.0 + penalty_norm) 
 
-def generations_to_plot(amount: int, step: int) -> list:
-    return np.arange(1, amount + 1) * step
-
-def run():
-    start_time = time.time()
-    F = 0.5
-    CR = 0.3
-    max_gen = 50
-    pop_size = 10
-    track_start = 0
-    track_end = 200
-    gens_to_plot = generations_to_plot(20, 10)
-    bounds = [
-        [0.4, 0.6], # distribution
-        [2.5e5, 7.5e5], # Kds
-        [2.5e5, 7.5e5], # Kts
-        [1e4, 3e4], # Kpds
-        [1e4, 3e4], # Kpts
-        [1e3, 5e7], # Kf
-        [0.8e3, 2.4e7], # Kt
-        [1e4, 5e4], # Cds
-        [2.5e3, 7.5e3], # Cts
-        [0.9, 1.1], # W
-        [1, 1.2], # Lt
-        [1.2, 1.6], # Ld
-        [0.278, 22.22], # max speed
-    ]
-
-    timestamp = datetime.now().strftime("%Y-%m-%d %H%M")
-    folder = f"{timestamp} - speed profile gen"
-    os.makedirs(folder, exist_ok=True)
-
-    best_params, best_fitness, standard_deviation, data = customDifferentialEvolution(
-        lapTime,
-        np.array(bounds),
-        max_generations=max_gen,
-        F=F,
-        CR=CR,
-        pop_size=pop_size,
-        gensToPlot=gens_to_plot,
-        folder=folder
-    )
-
-    time_elapsed = time.time() - start_time
-    hours, seconds_remain = divmod(time_elapsed, 3600)
-    minutes, seconds = divmod(seconds_remain, 60)
-
-    print(f"Melhores waypoints: {best_params[0]}")
-    print(f"Speed profile: {best_params[1]}")
-    print(f"Velocidade mínima: {best_params[1].min()}")
-    print(f"Velocidade máxima: {best_params[1].max()}")
-    print(f"Velocidade média: {best_params[1].mean()}")
-    print(f"Menor tempo total encontrada: {best_fitness}")
-    print(f"Desvio padrão: {standard_deviation}")
-    print(f"Total time elapsed: {int(hours):02}:{int(minutes):02}:{int(seconds):02}")
-
-    generations = [i + 1 for i in range(len(data[0]))]
-    plt.figure(figsize=(18, 10))
-    plt.suptitle(
-        f"Tempo gasto: {int(hours):02}:{int(minutes):02}:{int(seconds):02}\nDesvio padrão: {standard_deviation:.2f}\nMenor tempo: {best_fitness:.2f}\n",
-        fontsize=16,
-    )
-    plt.subplots_adjust(wspace=0.8, hspace=1.2)
-
-    plt.subplot(4, 1, 1)
-    plt.plot(generations, data[0])
-    plt.xlabel("Geração")
-    plt.ylabel("Melhor tempo de volta")
-    # plt.ylim(0 , 2500)
-    # plt.xlim(0, max_gen)
-
-    plt.subplot(4, 1, 2)
-    plt.plot(generations, data[1])
-    plt.xlabel("Geração")
-    plt.ylabel("Desvio Padrão")
-    plt.ylim(0, 10)
-    # plt.xlim(0, max_gen)
-
-    fileName = f"{timestamp} pop_size={pop_size} max_gen={max_gen} F={F} CR={CR}"
-
-    plt.savefig(f"{folder}/charts.png")
-    # TRACK.plotar_tracado_na_pista(f"somulação {timstamp}/{fileName} tracado.png", best_params[0], track_size)
-
-
-if __name__ ==   '__main__':
-    run()
+    return fitness, speed_profile

@@ -1,5 +1,5 @@
 import numpy as np
-from PistaComAtrito import TRACK
+from track import TRACK
 
 def build_checkpoints() -> list[list]:
     X_malha, Y_malha, Z_malha = TRACK.gerar_malha()

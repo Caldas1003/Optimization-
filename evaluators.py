@@ -291,11 +291,6 @@ def calculate_time(points: list, speed_profile: list) -> float:
         if i == 0:
             continue
         
-        # current é o ponto onde o carro chega, previous é de onde veio
-        # Ajuste conforme a lógica do seu loop (no seu código original parecia usar i, i+1)
-        # Analisando seu código original: você iterava de 0 a len, ignorando o último e primeiro
-        # Mas usava current=i e following=i+1. Vamos manter essa lógica.
-        
         if i == number_of_points - 1:
              continue
 
@@ -310,12 +305,8 @@ def calculate_time(points: list, speed_profile: list) -> float:
 
         stretch_distance = get_stretch_distance(current_point, following_point)
 
-        # --- CORREÇÃO AQUI ---
-        # Cálculo usando Velocidade Média (muito mais estável)
-        # t = distancia / velocidade_media
         avg_speed = (current_speed + following_speed) / 2.0
 
-        # Proteção contra divisão por zero (caso o otimizador tente parar o carro)
         if avg_speed > 1e-3: 
             stretch_time = stretch_distance / avg_speed
         else:
@@ -557,41 +548,7 @@ def lapTime(max_speed: float, pure_acceleration: float, pure_breaking: float, pu
     path = np.array(PATH)
     gg_diagram = generate_gg_diagram(pure_acceleration=pure_acceleration, pure_breaking=pure_breaking, pure_cornering=pure_cornering)
     speed_profile = generate_speed_profile(path, gg_diagram=gg_diagram, max_speed=max_speed)
-    (distribution, Kds, Kts, Kpds, Kpts, Kf, Kt, Cds, Cts, W, Lt, Ld) = individual
-    params = {
-        "distribution": distribution,
-        "Kds": Kds,
-        "Kts": Kts,
-        "Kpds": Kpds,
-        "Kpts": Kpts,
-        "Kf": Kf,
-        "Kt": Kt,
-        "Cds": Cds,
-        "Cts": Cts,
-        "W": W,
-        "Lt": Lt,
-        "Ld": Ld
-    }
-
-    #load_transfer = {
-    #"lat_front": 0.5,
-    #"lat_rear": 0.5,
-    #"long_front": 0.5,
-    #"long_rear": 0.5,}
-
-    penalty_norm, pens, inters, loads = physical_penalties(params)
     
-    # Lógica de Fitness
     time = calculate_time(path, speed_profile)
-    
-    # Se o debug estiver ligado OU se a penalidade for muito alta (o carro está "quebrado")
-    if debug or penalty_norm > 0.5: 
-        print(f"DEBUG: Tempo calculado: {time:.2f}s | Penalidade Norm: {penalty_norm:.2%}")
-        # Chama nosso relatório
-        print_penalty_report(pens, inters, loads)
 
-    # Aplica a penalidade no tempo (como estava no seu comentário)
-    # Se penalty_norm for 0.5 (50%), o tempo aumenta em 50%.
-    fitness = time * (1.0 + penalty_norm) 
-
-    return fitness, speed_profile
+    return time

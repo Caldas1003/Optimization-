@@ -123,10 +123,6 @@ def get_stretch_distance(P1, P2):
     
     return np.abs(stretch_distance)
 
-def acceleration_available(speed: float) -> float:
-    g = 9.8 # gravity
-    return 1.5*g if speed < 15.28 else ((-1.5*g*(speed - 15.28)/6.94) + 1.5*g) # 15.28 m/s = 55 kph
-
 def calculate_parable_half(x_max: float, y_max: float) -> dict:
     c3 = y_max
     c2 = 0

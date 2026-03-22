@@ -544,11 +544,25 @@ def print_penalty_report(penalties, interactions, load_penalties, threshold=1e-4
     
     print("="*60 + "\n")
 
-def lapTime(max_speed: float, pure_acceleration: float, pure_breaking: float, pure_cornering: float, individual, debug=False) -> list:
-    path = np.array(PATH)
+def lapTime(
+        waypoints: list,
+        checkpoints: list,
+        max_speed: float, 
+        pure_acceleration: float = 5.0, 
+        pure_breaking: float = 10.0, 
+        pure_cornering: float = 8.0, 
+    ) -> list:
+    path = generate_path(waypoints, checkpoints)
     gg_diagram = generate_gg_diagram(pure_acceleration=pure_acceleration, pure_breaking=pure_breaking, pure_cornering=pure_cornering)
     speed_profile = generate_speed_profile(path, gg_diagram=gg_diagram, max_speed=max_speed)
     
     time = calculate_time(path, speed_profile)
 
     return time
+
+def lapTime(waypoints: list, checkpoints: list, max_speed: float) -> list:
+    path = generate_path(waypoints, checkpoints)
+    speed_profile = generate_speed_profile(path, max_speed)
+    time = calculate_time(path, speed_profile)
+
+    return [time, path, speed_profile]
